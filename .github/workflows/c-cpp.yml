@@ -16,9 +16,9 @@ jobs:
     - name: apt update
       run: sudo apt update
     - name: dpkg / rpm prep (debug)
-      run: echo "sudo -E apt-get install -y uuid-dev uuid libuuid1 libgcrypt20 openssl libssl-dev `apt-cache search librocksdb | awk '{print $1}'` uncrustify libasan5 libtsan0"
+      run: echo "sudo -E apt-get install -y uuid-dev uuid libuuid1 libgcrypt20 openssl libssl-dev `apt-cache search librocksdb | awk '{print $1}'` uncrustify libasan5 libtsan0 nasm"
     - name: dpkg / rpm prep
-      run: sudo -E apt-get install -y uuid-dev uuid libuuid1 libgcrypt20 openssl libssl-dev `apt-cache search librocksdb | awk '{print $1}'` uncrustify libasan5 libtsan0
+      run: sudo -E apt-get install -y uuid-dev uuid libuuid1 libgcrypt20 openssl libssl-dev `apt-cache search librocksdb | awk '{print $1}'` uncrustify libasan5 libtsan0 nasm
 # capture gcc and clang versions
     - name: gcc version
       run: gcc --version
@@ -30,6 +30,9 @@ jobs:
 # build backtrace submodule
     - name: build libbacktrace
       run: cd modules/libbacktrace/ && ./configure && make && sudo make install
+# build isa-l submodule
+    - name: build isa-l
+      run: cd modules/isa-l/ && ./autogen.sh && ./configure && make -j 4 && sudo make install && sudo ldconfig
 # default build
     - name: prepare default build
       run: ./prepare.sh
