@@ -37,6 +37,7 @@ CORE_HDRS = src/include/atomic.h \
 	src/include/config_token.h \
         src/include/crc24q.h \
         src/include/crc32.h \
+        src/include/ec.h \
         src/include/ctl_interface_cmd.h \
 	src/include/ctl_interface.h \
         src/include/ctl_svc.h \
@@ -74,6 +75,7 @@ CORE_SOURCES = $(CORE_HDRS) \
         src/buffer.c \
         src/config_token.c \
         src/contrib/crc24q.c \
+        src/ec.c \
         $(ARCH_SOURCES) \
         src/contrib/dlmalloc.c \
         src/ctl_interface.c \
@@ -103,6 +105,7 @@ my_include_HEADERS += $(CORE_HDRS)
 lib_LTLIBRARIES += src/libniova.la
 src_libniova_la_LDFLAGS = \
 	-version-info @MAJOR_VERSION@:@MINOR_VERSION@:@VERSION_SUFFIX@
+src_libniova_la_LIBADD = $(ISAL_LIBS)
 src_libniova_la_SOURCES = $(CORE_SOURCES)
 
 ## Non-library sources
@@ -229,6 +232,13 @@ test_rb_tree_arg_test_SOURCES = test/rb-tree-arg-test.c
 test_rb_tree_arg_test_LDADD = src/libniova.la
 test_rb_tree_arg_test_CFLAGS = $(AM_CFLAGS)
 TESTS += test/rb-tree-arg-test
+
+noinst_PROGRAMS += test/ec-test
+test_ec_test_SOURCES = test/ec-test.c test/ec-reference-data.h
+test_ec_test_LDADD = src/libniova.la
+test_ec_test_CFLAGS = $(AM_CFLAGS)
+TESTS += test/ec-test
+
 
 autofmt:
 	uncrustify -c tools/uncrustify.cfg --no-backup `find . -name "*.[ch]"` | tee /dev/null
