@@ -154,7 +154,7 @@ niova_vbasic_init_aligned(struct niova_vbasic_allocator *nvba,
 {
     int rc = 0, err_loc = 0;
     unsigned int nunits = 0;
-
+    enum log_level log_lvl;
     // Basic parameter checks
     if (!nvba || region_size == 0 || alignment == 0)
     {
@@ -260,7 +260,7 @@ niova_vbasic_init_aligned(struct niova_vbasic_allocator *nvba,
     nvba->nvba_region_ptr = (char *)aligned;
 
 xerror:
-    enum log_level log_lvl = rc ? LL_ERROR : LL_NOTIFY;
+    log_lvl = rc ? LL_ERROR : LL_NOTIFY;
     SIMPLE_LOG_MSG(log_lvl, "reg_sz %ld nvba %p bmap 0x%lx usize %ld "
                    "nunits=%u align %u err_loc %d error %d",
                    region_size, nvba, nvba ? nvba->nvba_bitmap : 0,
