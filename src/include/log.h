@@ -173,7 +173,10 @@ do {                                                                         \
                     thread_name_get(), __func__, __LINE__, ##__VA_ARGS__);   \
         }                                                                    \
         if ((usr_level) == LL_FATAL)                                         \
+        {                                                                    \
             LOG_ABORT;                                                       \
+            __builtin_unreachable();                                         \
+        }                                                                    \
     }                                                                        \
 } while (0)
 
@@ -263,18 +266,6 @@ do {                                                                 \
 do {                                                  \
     SIMPLE_LOG_MSG(LL_ERROR, message, ##__VA_ARGS__); \
     exit(exit_val);                                   \
-} while (0)
-
-#define NIOVA_ASSERT(cond)                    \
-do {                                          \
-    if (!(cond))                              \
-        FATAL_MSG("failed assertion: "#cond); \
-} while (0)
-
-#define NIOVA_ASSERT_strerror(cond)                                  \
-do {                                                                 \
-    if (!(cond))                                                     \
-        FATAL_MSG("failed assertion: "#cond", %s", strerror(errno)); \
 } while (0)
 
 #define DEBUG_BLOCK(lvl) \
