@@ -265,18 +265,6 @@ do {                                                  \
     exit(exit_val);                                   \
 } while (0)
 
-#define NIOVA_ASSERT(cond)                    \
-do {                                          \
-    if (!(cond))                              \
-        FATAL_MSG("failed assertion: "#cond); \
-} while (0)
-
-#define NIOVA_ASSERT_strerror(cond)                                  \
-do {                                                                 \
-    if (!(cond))                                                     \
-        FATAL_MSG("failed assertion: "#cond", %s", strerror(errno)); \
-} while (0)
-
 #define DEBUG_BLOCK(lvl) \
     if (lvl <= log_level_get())
 
