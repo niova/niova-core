@@ -173,7 +173,10 @@ do {                                                                         \
                     thread_name_get(), __func__, __LINE__, ##__VA_ARGS__);   \
         }                                                                    \
         if ((usr_level) == LL_FATAL)                                         \
+        {                                                                    \
             LOG_ABORT;                                                       \
+            __builtin_unreachable();                                         \
+        }                                                                    \
     }                                                                        \
 } while (0)
 
