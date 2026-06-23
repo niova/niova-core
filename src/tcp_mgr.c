@@ -172,6 +172,57 @@ tcp_mgr_set_thread_cnt_env_cb(const struct niova_env_var *ev)
     tcpWorkerCnt = ev->nev_long_value;
 }
 
+void
+tcp_mgr_destroy(struct tcp_mgr_instance *tmi)
+{
+    if (!tmi)
+        return;
+
+    // Check if workers exist by checking thread_ids
+    bool has_workers = false;
+    for (size_t i = 0; i < TCP_MGR_NTHREADS; i++)
+    {
+        if (tmi->tmi_workers[i].tc_thread_id != 0)
+        {
+            has_workers = true;
+            break;
+        }
+    }
+
+    if (!has_workers)
+        return;
+
+    struct tcp_mgr_connq *tmcq = &tmi->tmi_connq;
+
+    // Wake up all waiting workers by broadcasting on the condition variable
+    // This ensures they wake up and see the HALT flag when we call thread_halt_and_destroy()
+    // Try to lock the mutex first - if we can't, workers might be using it
+    int trylock_rc = pthread_mutex_trylock(&tmcq->tmcq_mutex);
+    if (trylock_rc == 0)
+    {
+        pthread_cond_broadcast(&tmcq->tmcq_cond);
+        pthread_mutex_unlock(&tmcq->tmcq_mutex);
+    }
+    else if (trylock_rc != EINVAL)
+    {
+        // Mutex is locked - broadcast anyway (pthread_cond_broadcast doesn't require mutex)
+        pthread_cond_broadcast(&tmcq->tmcq_cond);
+    }
+    // If EINVAL, mutex not initialized (zeroed), skip broadcast
+
+    // Halt and destroy each worker thread
+    // thread_halt_and_destroy() sets HALT flag and pthread_join()s to wait for exit
+    for (size_t i = 0; i < TCP_MGR_NTHREADS; i++)
+    {
+        if (tmi->tmi_workers[i].tc_thread_id != 0)
+        {
+            thread_halt_and_destroy(&tmi->tmi_workers[i]);
+        }
+    }
+
+    tmi->tmi_nworkers = 0;
+}
+
 int
 tcp_mgr_setup(struct tcp_mgr_instance *tmi, void *data,
               epoll_mgr_ref_cb_t connection_ref_cb,
@@ -183,6 +234,28 @@ tcp_mgr_setup(struct tcp_mgr_instance *tmi, void *data,
               uint32_t incoming_credits, bool conn_recv_handoff)
 {
     NIOVA_ASSERT(tmi);
+
+    // Check if workers already exist - if so, destroy them first
+    // This handles the case where tcp_mgr_setup is called multiple times
+    // without going through raft_server_instance_init (which zeros everything).
+    // Note: After bulk recovery, raft_server_instance_init zeros the entire
+    // raft_instance including tcp_mgr_instance, so workers should already be gone.
+    if (tmi->tmi_nworkers > 0)
+    {
+        tcp_mgr_destroy(tmi);
+    }
+    else
+    {
+        // Double-check for leftover thread_ids (shouldn't happen after memset, but be safe)
+        for (size_t i = 0; i < TCP_MGR_NTHREADS; i++)
+        {
+            if (tmi->tmi_workers[i].tc_thread_id != 0)
+            {
+                tcp_mgr_destroy(tmi);
+                break;
+            }
+        }
+    }
 
     tmi->tmi_data = data;
     tmi->tmi_nworkers = 0;
