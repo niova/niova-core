@@ -239,7 +239,7 @@ test_ec_test_LDADD = src/libniova.la
 test_ec_test_CFLAGS = $(AM_CFLAGS)
 TESTS += test/ec-test
 
-# Run ec-test as part of `make`, not just `make check`. The stamp file gates
+# Run ec-test as part of `make`, not just `make check`.
 all-local: test/ec-test.stamp
 
 test/ec-test.stamp: test/ec-test$(EXEEXT)

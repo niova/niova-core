@@ -19,7 +19,8 @@ static unsigned int niovaEcKMax;
 static bool         niovaEcInitialized;
 
 static int
-niova_ec_build_slot(unsigned int k, unsigned int p)
+niova_ec_build_slot(struct niova_ec_encode_cache *cache, unsigned int k,
+                    unsigned int p)
 {
     const unsigned int m = k + p;
 
@@ -38,15 +39,19 @@ niova_ec_build_slot(unsigned int k, unsigned int p)
     ec_init_tables(k, p, &encode_matrix[k * k], g_tbls);
     free(encode_matrix);
 
-    niovaEcGTbls[k] = g_tbls;
+    cache->neec_gtbls[k] = g_tbls;
     return 0;
 }
 
 int
-niova_ec_init_encode_cache(unsigned int k_min, unsigned int k_max,
+niova_ec_init_encode_cache(struct niova_ec_encode_cache *cache,
+                           unsigned int k_min, unsigned int k_max,
                            unsigned int p)
 {
-    if (niovaEcInitialized)
+    if (!cache)
+        return -EINVAL;
+
+    if (cache->neec_initialized)
         return -EALREADY;
 
     if (p == 0 || k_min == 0 || k_min > k_max ||
@@ -55,19 +60,23 @@ niova_ec_init_encode_cache(unsigned int k_min, unsigned int k_max,
 
     for (unsigned int k = k_min; k <= k_max; k++)
     {
-        int rc = niova_ec_build_slot(k, p);
+        int rc = niova_ec_build_slot(cache, k, p);
         if (rc)
         {
             for (unsigned int j = k_min; j < k; j++)
             {
-                free(niovaEcGTbls[j]);
-                niovaEcGTbls[j] = NULL;
+                free(cache->neec_gtbls[j]);
+                cache->neec_gtbls[j] = NULL;
             }
             return rc;
         }
     }
 
-    niovaEcP           = p;
+    cache->neec_p           = p;
+    cache->neec_k_min       = k_min;
+    cache->neec_k_max       = k_max;
+    cache->neec_initialized = true;
+
     niovaEcKMin        = k_min;
     niovaEcKMax        = k_max;
     niovaEcInitialized = true;
@@ -79,15 +88,21 @@ niova_ec_init_encode_cache(unsigned int k_min, unsigned int k_max,
 }
 
 void
-niova_ec_destroy_encode_cache(void)
+niova_ec_destroy_encode_cache(struct niova_ec_encode_cache *cache)
 {
-    if (!niovaEcInitialized)
+    if (!cache || !cache->neec_initialized)
         return;
 
-    for (unsigned int k = niovaEcKMin; k <= niovaEcKMax; k++)
+    for (unsigned int k = cache->neec_k_min; k <= cache->neec_k_max; k++)
     {
-        free(niovaEcGTbls[k]);
+        free(cache->neec_gtbls[k]);
+        cache->neec_gtbls[k] = NULL;
     }
+    cache->neec_p           = 0;
+    cache->neec_k_min       = 0;
+    cache->neec_k_max       = 0;
+    cache->neec_initialized = false;
+
     niovaEcP           = 0;
     niovaEcKMin        = 0;
     niovaEcKMax        = 0;
@@ -95,17 +110,18 @@ niova_ec_destroy_encode_cache(void)
 }
 
 int
-niova_ec_encode(unsigned int k, size_t len, uint8_t *const *data,
-                uint8_t **parity)
+niova_ec_encode(const struct niova_ec_encode_cache *cache, unsigned int k,
+                size_t len, uint8_t *const *data, uint8_t **parity)
 {
-    if (!niovaEcInitialized || k < niovaEcKMin || k > niovaEcKMax ||
+    if (!cache || !cache->neec_initialized ||
+        k < cache->neec_k_min || k > cache->neec_k_max ||
         !data || !parity || !len)
         return -EINVAL;
 
     /* ec_encode_data takes non-const data pointers but does not modify the
      * source buffers
      */
-    ec_encode_data((int)len, (int)k, (int)niovaEcP, niovaEcGTbls[k],
+    ec_encode_data((int)len, (int)k, (int)cache->neec_p, cache->neec_gtbls[k],
                    (unsigned char **)(uintptr_t)data,
                    (unsigned char **)parity);
 
@@ -113,18 +129,20 @@ niova_ec_encode(unsigned int k, size_t len, uint8_t *const *data,
 }
 
 int
-niova_ec_encode_update(unsigned int k, unsigned int src_idx, size_t len,
+niova_ec_encode_update(const struct niova_ec_encode_cache *cache,
+                       unsigned int k, unsigned int src_idx, size_t len,
                        const uint8_t *src, uint8_t **parity)
 {
-    if (!niovaEcInitialized || k < niovaEcKMin || k > niovaEcKMax ||
+    if (!cache || !cache->neec_initialized ||
+        k < cache->neec_k_min || k > cache->neec_k_max ||
         src_idx >= k || !src || !parity || !len)
         return -EINVAL;
 
     /* ec_encode_data_update takes non-const data pointers but does not modify
      * the source buffers
      */
-    ec_encode_data_update((int)len, (int)k, (int)niovaEcP, (int)src_idx,
-                          niovaEcGTbls[k],
+    ec_encode_data_update((int)len, (int)k, (int)cache->neec_p, (int)src_idx,
+                          cache->neec_gtbls[k],
                           (unsigned char *)(uintptr_t)src,
                           (unsigned char **)parity);
 

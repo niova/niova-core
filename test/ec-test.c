@@ -85,7 +85,8 @@ run_geom(const struct ec_test_geom *g, const struct ec_reference_entry *ref)
     FATAL_IF(ref->p != g->p,
              "geom %s: reference p=%u != geom p=%u", g->tag, ref->p, g->p);
 
-    int rc = niova_ec_init_encode_cache(g->k, g->k, g->p);
+    struct niova_ec_encode_cache cache = {0};
+    int rc = niova_ec_init_encode_cache(&cache, g->k, g->k, g->p);
     FATAL_IF(rc, "niova_ec_init_encode_cache(%u,%u,%u) -> %d",
              g->k, g->k, g->p, rc);
 
@@ -98,7 +99,7 @@ run_geom(const struct ec_test_geom *g, const struct ec_reference_entry *ref)
         ec_test_fill(data[i], g->len, g->k, g->p, i);
 
     //  Calculate parity
-    rc = niova_ec_encode(g->k, g->len, data, parity);
+    rc = niova_ec_encode(&cache, g->k, g->len, data, parity);
     FATAL_IF(rc, "niova_ec_encode -> %d", rc);
 
     // Verify correctness against reference
@@ -165,7 +166,7 @@ run_geom(const struct ec_test_geom *g, const struct ec_reference_entry *ref)
     free_buffers(shards, m);
     free_buffers(parity, g->p);
     free_buffers(data, g->k);
-    niova_ec_destroy_encode_cache();
+    niova_ec_destroy_encode_cache(&cache);
 }
 
 int
