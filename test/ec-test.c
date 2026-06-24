@@ -130,7 +130,7 @@ run_geom(const struct ec_test_geom *g, const struct ec_reference_entry *ref)
         is_erased[erased[i]] = true;
 
     struct niova_ec_decode dctx = {0};
-    rc = niova_ec_decode_prepare(&dctx, g->k, erased, nerrs);
+    rc = niova_ec_decode_prepare(&dctx, g->k, g->p, erased, nerrs);
     FATAL_IF(rc, "niova_ec_decode_prepare -> %d", rc);
 
     // calloc, so rebuilt[] starts zeroed as decode_update requires.

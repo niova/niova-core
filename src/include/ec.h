@@ -83,7 +83,8 @@ niova_ec_encode_update(const struct niova_ec_encode_cache *cache,
  */
 int
 niova_ec_decode_prepare(struct niova_ec_decode *d, unsigned int k,
-                        const unsigned int *erased_idx, unsigned int nerrs);
+                        unsigned int p, const unsigned int *erased_idx,
+                        unsigned int nerrs);
 
 /* Fold one surviving fragment into the running rebuild. The caller must:
  *  - zero rebuilt[0..d->nerrs-1] before the first call for a stripe (calloc

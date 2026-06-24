@@ -12,12 +12,6 @@
 #include "ec.h"
 #include "log.h"
 
-static uint8_t     *niovaEcGTbls[NIOVA_EC_M_MAX + 1];
-static unsigned int niovaEcP;
-static unsigned int niovaEcKMin;
-static unsigned int niovaEcKMax;
-static bool         niovaEcInitialized;
-
 static int
 niova_ec_build_slot(struct niova_ec_encode_cache *cache, unsigned int k,
                     unsigned int p)
@@ -52,7 +46,8 @@ niova_ec_init_encode_cache(struct niova_ec_encode_cache *cache,
         return -EINVAL;
 
     if (cache->neec_initialized)
-        return -EALREADY;
+        return (k_min == cache->neec_k_min && k_max == cache->neec_k_max &&
+                p == cache->neec_p) ? -EALREADY : -EINVAL;
 
     if (p == 0 || k_min == 0 || k_min > k_max ||
         (k_max + p) > NIOVA_EC_M_MAX)
@@ -77,10 +72,6 @@ niova_ec_init_encode_cache(struct niova_ec_encode_cache *cache,
     cache->neec_k_max       = k_max;
     cache->neec_initialized = true;
 
-    niovaEcKMin        = k_min;
-    niovaEcKMax        = k_max;
-    niovaEcInitialized = true;
-
     SIMPLE_LOG_MSG(LL_DEBUG,
                    "niova ec: cached encode tables for k=[%u..%u], p=%u",
                    k_min, k_max, p);
@@ -102,11 +93,6 @@ niova_ec_destroy_encode_cache(struct niova_ec_encode_cache *cache)
     cache->neec_k_min       = 0;
     cache->neec_k_max       = 0;
     cache->neec_initialized = false;
-
-    niovaEcP           = 0;
-    niovaEcKMin        = 0;
-    niovaEcKMax        = 0;
-    niovaEcInitialized = false;
 }
 
 int
@@ -210,14 +196,13 @@ niova_ec_gen_decode_matrix(const uint8_t *encode_matrix, uint8_t *decode_matrix,
 
 int
 niova_ec_decode_prepare(struct niova_ec_decode *d, unsigned int k,
-                        const unsigned int *erased_idx, unsigned int nerrs)
+                        unsigned int p, const unsigned int *erased_idx,
+                        unsigned int nerrs)
 {
-    if (!niovaEcInitialized || !d || !erased_idx ||
-        k < niovaEcKMin || k > niovaEcKMax ||
-        nerrs == 0 || nerrs > niovaEcP)
+    if (!d || !erased_idx || k == 0 || p == 0 ||
+        (k + p) > NIOVA_EC_M_MAX || nerrs == 0 || nerrs > p)
         return -EINVAL;
 
-    const unsigned int p = niovaEcP;
     const unsigned int m = k + p;
 
     uint8_t seen[NIOVA_EC_M_MAX] = {0};
@@ -229,7 +214,7 @@ niova_ec_decode_prepare(struct niova_ec_decode *d, unsigned int k,
         seen[erased_idx[i]] = 1;
         frag_err_list[i] = (uint8_t)erased_idx[i];
     }
-    
+
     uint8_t encode_matrix[NIOVA_EC_M_MAX * NIOVA_EC_M_MAX];
     uint8_t decode_matrix[NIOVA_EC_M_MAX * NIOVA_EC_M_MAX];
     uint8_t invert_matrix[NIOVA_EC_M_MAX * NIOVA_EC_M_MAX];
