@@ -80,6 +80,8 @@ niova_ec_encode_update(const struct niova_ec_encode_cache *cache,
  *
  * After this call, `d->erased[i]` is the original frag idx that will be
  * written to rebuilt[i] by niova_ec_decode_update().
+ *
+ * Note: This function is only used for testing.
  */
 int
 niova_ec_decode_prepare(struct niova_ec_decode *d, unsigned int k,
@@ -93,6 +95,8 @@ niova_ec_decode_prepare(struct niova_ec_decode *d, unsigned int k,
  *
  * Returns 0 on success, -ENOENT if `frag_idx` is not part of the chosen
  * recovery set, -EINVAL on bad arguments.
+ *
+ * Note: This function is only used for testing.
  */
 int
 niova_ec_decode_update(const struct niova_ec_decode *d, unsigned int frag_idx,
