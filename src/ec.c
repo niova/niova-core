@@ -12,6 +12,14 @@
 #include "ec.h"
 #include "log.h"
 
+static uint8_t *
+niova_ec_alloc_gtbls(size_t size)
+{
+    void *ptr = NULL;
+
+    return posix_memalign(&ptr, L2_CACHELINE_SIZE_BYTES, size) ? NULL : ptr;
+}
+
 static int
 niova_ec_build_slot(struct niova_ec_encode_cache *cache, unsigned int k,
                     unsigned int p)
@@ -19,7 +27,7 @@ niova_ec_build_slot(struct niova_ec_encode_cache *cache, unsigned int k,
     const unsigned int m = k + p;
 
     uint8_t *encode_matrix = calloc(1, (size_t)m * k);
-    uint8_t *g_tbls        = calloc(1, 32UL * k * p);
+    uint8_t *g_tbls        = niova_ec_alloc_gtbls(32UL * k * p);
 
     if (!encode_matrix || !g_tbls)
     {
@@ -222,7 +230,7 @@ niova_ec_decode_prepare(struct niova_ec_decode *d, unsigned int k,
 
     gf_gen_cauchy1_matrix(encode_matrix, (int)m, (int)k);
 
-    uint8_t *g_tbls = calloc(1, 32UL * k * nerrs);
+    uint8_t *g_tbls = niova_ec_alloc_gtbls(32UL * k * nerrs);
     if (!g_tbls)
         return -ENOMEM;
 
