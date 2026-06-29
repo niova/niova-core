@@ -4,21 +4,13 @@
  */
 #include <errno.h>
 #include <stdbool.h>
-#include <stdlib.h>
 #include <string.h>
 
 #include <isa-l.h>
 
+#include "alloc.h"
 #include "ec.h"
 #include "log.h"
-
-static uint8_t *
-niova_ec_alloc_gtbls(size_t size)
-{
-    void *ptr = NULL;
-
-    return posix_memalign(&ptr, L2_CACHELINE_SIZE_BYTES, size) ? NULL : ptr;
-}
 
 static int
 niova_ec_build_slot(struct niova_ec_encode_cache *cache, unsigned int k,
@@ -26,20 +18,21 @@ niova_ec_build_slot(struct niova_ec_encode_cache *cache, unsigned int k,
 {
     const unsigned int m = k + p;
 
-    uint8_t *encode_matrix = calloc(1, (size_t)m * k);
-    uint8_t *g_tbls        = niova_ec_alloc_gtbls(32UL * k * p);
+    uint8_t *encode_matrix = niova_calloc_can_fail(1, (size_t)m * k);
+    uint8_t *g_tbls        =
+        niova_posix_memalign(32UL * k * p, L2_CACHELINE_SIZE_BYTES);
 
     if (!encode_matrix || !g_tbls)
     {
-        free(encode_matrix);
-        free(g_tbls);
+        niova_free(encode_matrix);
+        niova_free(g_tbls);
         return -ENOMEM;
     }
 
     gf_gen_cauchy1_matrix(encode_matrix, m, k);
 
     ec_init_tables(k, p, &encode_matrix[k * k], g_tbls);
-    free(encode_matrix);
+    niova_free(encode_matrix);
 
     cache->neec_gtbls[k] = g_tbls;
     return 0;
@@ -68,7 +61,7 @@ niova_ec_init_encode_cache(struct niova_ec_encode_cache *cache,
         {
             for (unsigned int j = k_min; j < k; j++)
             {
-                free(cache->neec_gtbls[j]);
+                niova_free(cache->neec_gtbls[j]);
                 cache->neec_gtbls[j] = NULL;
             }
             return rc;
@@ -94,7 +87,7 @@ niova_ec_destroy_encode_cache(struct niova_ec_encode_cache *cache)
 
     for (unsigned int k = cache->neec_k_min; k <= cache->neec_k_max; k++)
     {
-        free(cache->neec_gtbls[k]);
+        niova_free(cache->neec_gtbls[k]);
         cache->neec_gtbls[k] = NULL;
     }
     cache->neec_p           = 0;
@@ -230,7 +223,7 @@ niova_ec_decode_prepare(struct niova_ec_decode *d, unsigned int k,
 
     gf_gen_cauchy1_matrix(encode_matrix, (int)m, (int)k);
 
-    uint8_t *g_tbls = niova_ec_alloc_gtbls(32UL * k * nerrs);
+    uint8_t *g_tbls = niova_posix_memalign(32UL * k * nerrs, L2_CACHELINE_SIZE_BYTES);
     if (!g_tbls)
         return -ENOMEM;
 
@@ -240,7 +233,7 @@ niova_ec_decode_prepare(struct niova_ec_decode *d, unsigned int k,
                                         nerrs, k, m);
     if (rc)
     {
-        free(g_tbls);
+        niova_free(g_tbls);
         return rc;
     }
 
@@ -285,7 +278,7 @@ niova_ec_decode_release(struct niova_ec_decode *d)
 {
     if (!d)
         return;
-    free(d->g_tbls);
+    niova_free(d->g_tbls);
     d->g_tbls = NULL;
     d->k      = 0;
     d->nerrs  = 0;
