@@ -239,6 +239,12 @@ test_ec_test_LDADD = src/libniova.la
 test_ec_test_CFLAGS = $(AM_CFLAGS)
 TESTS += test/ec-test
 
+noinst_PROGRAMS += test/ec-micro-test
+test_ec_micro_test_SOURCES = test/ec-micro-test.c
+test_ec_micro_test_LDADD = src/libniova.la
+test_ec_micro_test_CFLAGS = $(AM_CFLAGS)
+TESTS += test/ec-micro-test
+
 # Run ec-test as part of `make`, not just `make check`.
 all-local: test/ec-test.stamp
 
