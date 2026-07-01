@@ -9,8 +9,11 @@
 #include <isa-l.h>
 
 #include "alloc.h"
+#include "ctor.h"
 #include "ec.h"
 #include "log.h"
+
+REGISTRY_ENTRY_FILE_GENERATE;
 
 static int
 niova_ec_build_slot(struct niova_ec_encode_cache *cache, unsigned int k,
@@ -94,6 +97,58 @@ niova_ec_destroy_encode_cache(struct niova_ec_encode_cache *cache)
     cache->neec_k_min       = 0;
     cache->neec_k_max       = 0;
     cache->neec_initialized = false;
+}
+
+/* Pool entries are indexed [k_max][p]. k_min isn't part of the index since,
+ * for every current caller, it's a pure function of (k_max, p).
+ */
+static struct niova_ec_encode_cache *
+niovaEcEncodeCachePool[NIOVA_EC_M_MAX + 1][NIOVA_EC_M_MAX + 1];
+
+const struct niova_ec_encode_cache *
+niova_ec_encode_cache_pool_get(unsigned int k_min, unsigned int k_max,
+                               unsigned int p)
+{
+    if (p == 0 || k_min == 0 || k_min > k_max || (k_max + p) > NIOVA_EC_M_MAX)
+        return NULL;
+
+    struct niova_ec_encode_cache *cache = niovaEcEncodeCachePool[k_max][p];
+
+    if (cache)
+    {
+        NIOVA_ASSERT(cache->neec_k_min == k_min);
+    }
+    else
+    {
+        cache = niova_calloc_can_fail(1, sizeof(struct niova_ec_encode_cache));
+        if (cache && niova_ec_init_encode_cache(cache, k_min, k_max, p))
+        {
+            niova_free(cache);
+            cache = NULL;
+        }
+
+        niovaEcEncodeCachePool[k_max][p] = cache;
+    }
+
+    return cache;
+}
+
+static destroy_ctx_t NIOVA_DESTRUCTOR(EC_ENCODE_CACHE_POOL_CTOR_PRIORITY)
+niova_ec_encode_cache_pool_destroy(void)
+{
+    for (unsigned int k = 0; k <= NIOVA_EC_M_MAX; k++)
+    {
+        for (unsigned int p = 0; p <= NIOVA_EC_M_MAX; p++)
+        {
+            struct niova_ec_encode_cache *cache = niovaEcEncodeCachePool[k][p];
+            if (cache)
+            {
+                niova_ec_destroy_encode_cache(cache);
+                niova_free(cache);
+                niovaEcEncodeCachePool[k][p] = NULL;
+            }
+        }
+    }
 }
 
 int

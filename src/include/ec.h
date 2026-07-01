@@ -54,6 +54,17 @@ niova_ec_init_encode_cache(struct niova_ec_encode_cache *cache,
 void
 niova_ec_destroy_encode_cache(struct niova_ec_encode_cache *cache);
 
+/* Process-wide pool of encode caches, keyed by (k_min, k_max, p) geometry.
+ *
+ * get()  builds one cache per distinct geometry the first time it is
+ * requested and hands back the same pointer to every subsequent caller with
+ * that geometry.
+ * 
+ * Returns NULL on invalid geometry or allocation failure.
+ */
+const struct niova_ec_encode_cache *
+niova_ec_encode_cache_pool_get(unsigned int k_min, unsigned int k_max,
+                               unsigned int p);
 
 /* One-shot encode: all k data fragments in memory, produces all p parity
  * fragments in one call. Use when the full stripe is assembled before ship.
