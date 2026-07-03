@@ -362,23 +362,28 @@ ctlic_parse_token_value_GET(struct ctlic_matched_token *cmt)
         return -EINVAL;
 
     bool escape_char = false;
-    bool prev_char_was_solidus = false;
+    bool prev_char_was_separator = false;
     bool prev_char_was_at_sign = false;
 
     for (size_t i = 0; i < cmt->cmt_value_len; i++)
     {
+        const bool segment_separator =
+            cmt->cmt_value[i] == '/' ||
+            (cmt->cmt_token->ct_id == CT_ID_WHERE &&
+             cmt->cmt_value[i] == '&');
+
         if (cmt->cmt_value[i] == '\\')
         {
             escape_char = true;
             continue;
         }
-        else if (cmt->cmt_value[i] == '/' && !escape_char)
+        else if (segment_separator && !escape_char)
         {
             if (prev_char_was_at_sign)
                 return -EBADMSG;
 
             cmt->cmt_value[i] = '\0';
-            prev_char_was_solidus = true;
+            prev_char_was_separator = true;
             escape_char = false;
             continue;
         }
@@ -389,7 +394,7 @@ ctlic_parse_token_value_GET(struct ctlic_matched_token *cmt)
             escape_char = false;
             continue;
         }
-        else if (prev_char_was_solidus)
+        else if (prev_char_was_separator)
         {
             if (cmt->cmt_num_depth_segments == CTLIC_MAX_VALUE_DEPTH)
                 return -E2BIG;
@@ -402,7 +407,7 @@ ctlic_parse_token_value_GET(struct ctlic_matched_token *cmt)
         }
         else if (prev_char_was_at_sign)
         {
-            if (prev_char_was_solidus ||
+            if (prev_char_was_separator ||
                 cmt->cmt_num_depth_segments == 0 ||
                 cmt->cmt_num_depth_segments >= CTLIC_MAX_VALUE_DEPTH)
                 return -EBADMSG;
@@ -418,7 +423,7 @@ ctlic_parse_token_value_GET(struct ctlic_matched_token *cmt)
         }
 
         prev_char_was_at_sign = false;
-        prev_char_was_solidus = false;
+        prev_char_was_separator = false;
         escape_char = false;
     }
 
@@ -1166,6 +1171,65 @@ ctlic_scan_registry_cb(struct lreg_node *lrn, void *arg, const int depth);
 static bool
 ctlic_scan_registry_cb_CT_ID_WHERE(struct lreg_node *lrn,
                                    struct ctlic_iterator *parent_citer,
+                                   const unsigned int depth);
+
+static int
+ctlic_try_apply_to_value(struct lreg_node *lrn,
+                         const struct ctlic_request *cr,
+                         const struct lreg_value *lv)
+{
+    if (!lrn || !cr || !lv)
+        return -EINVAL;
+
+    if (LREG_VALUE_TO_REQ_TYPE(lv) == LREG_VAL_TYPE_VARRAY ||
+        LREG_VALUE_TO_REQ_TYPE(lv) == LREG_VAL_TYPE_VOBJECT)
+    {
+        struct lreg_node vnode = *lrn;
+
+        lreg_value_vnode_data_to_lreg_node(lv, &vnode);
+
+        return ctlic_try_apply_here(&vnode, cr);
+    }
+
+    return ctlic_try_apply_here(lrn, cr);
+}
+
+static bool
+ctlic_where_descend(struct lreg_node *lrn, struct ctlic_iterator *parent_citer,
+                    const struct lreg_value *lv, const unsigned int depth)
+{
+    if (!lrn || !parent_citer || !lv)
+        return false;
+
+    switch (LREG_VALUE_TO_REQ_TYPE(lv))
+    {
+    case LREG_VAL_TYPE_ARRAY:
+    case LREG_VAL_TYPE_OBJECT:
+    case LREG_VAL_TYPE_ANON_OBJECT:
+        lreg_node_walk(lrn, ctlic_scan_registry_cb, parent_citer, depth,
+                       LREG_VALUE_TO_USER_TYPE(lv));
+        break;
+    case LREG_VAL_TYPE_VARRAY:
+    case LREG_VAL_TYPE_VOBJECT:
+    {
+        struct lreg_node vnode = *lrn;
+
+        lreg_value_vnode_data_to_lreg_node(lv, &vnode);
+
+        lreg_node_walk(&vnode, ctlic_scan_registry_cb, parent_citer, depth,
+                       LREG_VALUE_TO_USER_TYPE(lv));
+        break;
+    }
+    default:
+        return ctlic_scan_registry_cb_CT_ID_WHERE(lrn, parent_citer, depth);
+    }
+
+    return true;
+}
+
+static bool
+ctlic_scan_registry_cb_CT_ID_WHERE(struct lreg_node *lrn,
+                                   struct ctlic_iterator *parent_citer,
                                    const unsigned int depth)
 {
     NIOVA_ASSERT(parent_citer && parent_citer->citer_cr && depth > 0);
@@ -1209,17 +1273,19 @@ ctlic_scan_registry_cb_CT_ID_WHERE(struct lreg_node *lrn,
             if (!match)
                 continue;
 
-            // Segment match, descend if max request depth wasn't reached
-            else if (cmt->cmt_num_depth_segments > depth &&
-                     lreg_value_is_array_or_object(&lv))
-                lreg_node_walk(lrn, ctlic_scan_registry_cb,
-                               (void *)parent_citer,
-                               depth + 1, LREG_VALUE_TO_USER_TYPE(&lv));
+            /* Segment match, descend if max request depth wasn't reached.
+             * Scalar matches act as selectors for the current object, so the
+             * next depth is evaluated against the same lrn.
+             */
+            else if (cmt->cmt_num_depth_segments > depth)
+            {
+                if (!ctlic_where_descend(lrn, parent_citer, &lv, depth + 1))
+                    return false;
+            }
 
             // Segment match and depth has been reached
-            else if (cmt->cmt_num_depth_segments == depth &&
-                     !lreg_value_is_array_or_object(&lv))
-                rc = ctlic_try_apply_here(lrn, cr);
+            else if (cmt->cmt_num_depth_segments == depth)
+                rc = ctlic_try_apply_to_value(lrn, cr, &lv);
         }
 
         if (rc)
