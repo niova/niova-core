@@ -128,6 +128,19 @@ AC_CHECK_LIB([z],[compressBound],,
 AC_CHECK_LIB([lz4],[LZ4_compress_default],,
              [AC_MSG_ERROR([Could not find LZ4_compress_default])])
 
+AC_CHECK_HEADERS([isa-l.h], [],
+                 [AC_MSG_ERROR([failed to locate isa-l.h])], [])
+
+AC_CHECK_LIB([isal], [crc32_iscsi], [],
+             [AC_MSG_ERROR([Could not find crc32_iscsi in -lisal])])
+
+AC_CHECK_LIB([isal], [crc16_t10dif_base], [],
+             [AC_MSG_ERROR([Could not find crc16_t10dif_base in -lisal])])
+
+AC_CHECK_LIB([isal], [ec_init_tables],
+             [AC_SUBST(ISAL_LIBS, [-lisal])],
+             [AC_MSG_ERROR([Could not find ec_init_tables in -lisal])])
+
 if [test x$arm == xtrue] ; then
 AC_MSG_CHECKING([for 64-bit PMULL support])
 AC_COMPILE_IFELSE([AC_LANG_PROGRAM([[
