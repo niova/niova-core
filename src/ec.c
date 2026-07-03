@@ -21,7 +21,7 @@ niova_ec_build_slot(struct niova_ec_encode_cache *cache, unsigned int k,
 {
     const unsigned int m = k + p;
 
-    uint8_t *encode_matrix = niova_calloc_can_fail(1, (size_t)m * k);
+    uint8_t *encode_matrix = niova_calloc_can_fail(1UL, (size_t)m * k);
     uint8_t *g_tbls        =
         niova_posix_memalign(32UL * k * p, L2_CACHELINE_SIZE_BYTES);
 
@@ -120,7 +120,9 @@ niova_ec_encode_cache_pool_get(unsigned int k_min, unsigned int k_max,
     }
     else
     {
-        cache = niova_calloc_can_fail(1, sizeof(struct niova_ec_encode_cache));
+        cache =
+            niova_calloc_can_fail(1UL, sizeof(struct niova_ec_encode_cache));
+
         if (cache && niova_ec_init_encode_cache(cache, k_min, k_max, p))
         {
             niova_free(cache);
