@@ -193,37 +193,66 @@ niova_ec_encode_update(const struct niova_ec_encode_cache *cache,
     return 0;
 }
 
-/* Builds the decode matrix from the encode matrix + erasure list, using the
- * pattern from isa-l's ec_simple_example.c. Plain-English summary:
- *  1) drop the rows of encode_matrix that correspond to erased fragments,
- *  2) invert the resulting kxk submatrix (Cauchy guarantees this works),
- *  3) the inverse's rows are the recipe to rebuild each original data shard;
- *     for an erased parity shard, multiply its original encode row by the
- *     inverse to re-express it in terms of the surviving shards.
- *
- * Also fills decode_index[] with the surviving frag indices in matrix order.
+static int
+niova_ec_validate_erased(const unsigned int *erased_idx, unsigned int nerrs,
+                         unsigned int p, unsigned int m,
+                         uint8_t *frag_err_list,
+                         uint8_t *frag_in_err)
+{
+    if (!erased_idx || nerrs == 0 || nerrs > p)
+        return -EINVAL;
+
+    for (unsigned int i = 0; i < nerrs; i++)
+    {
+        if (erased_idx[i] >= m || frag_in_err[erased_idx[i]])
+            return -EINVAL;
+        frag_in_err[erased_idx[i]] = 1;
+        frag_err_list[i] = (uint8_t)erased_idx[i];
+    }
+
+    return 0;
+}
+
+static int
+niova_ec_validate_survivors(const unsigned int *survivor_idx,
+                            unsigned int nsurvivors, unsigned int k,
+                            unsigned int m, const uint8_t *frag_in_err,
+                            uint8_t *decode_index)
+{
+    if (!survivor_idx || nsurvivors != k)
+        return -EINVAL;
+
+    uint8_t seen[NIOVA_EC_M_MAX] = {0};
+    for (unsigned int i = 0; i < nsurvivors; i++)
+    {
+        if (survivor_idx[i] >= m || seen[survivor_idx[i]] ||
+            frag_in_err[survivor_idx[i]])
+            return -EINVAL;
+
+        seen[survivor_idx[i]] = 1;
+        decode_index[i] = (uint8_t)survivor_idx[i];
+    }
+
+    return 0;
+}
+
+/* Following ISA-L's ec_simple_example.c, invert the selected kxk encode
+ * submatrix; Cauchy construction guarantees invertibility.
+ * Inverse rows rebuild data fragments. To rebuild parity, multiply its
+ * original encode row by the inverse.
  */
 static int
 niova_ec_gen_decode_matrix(const uint8_t *encode_matrix, uint8_t *decode_matrix,
                            uint8_t *invert_matrix, uint8_t *temp_matrix,
                            uint8_t *decode_index, const uint8_t *frag_err_list,
-                           unsigned int nerrs, unsigned int k, unsigned int m)
+                           unsigned int nerrs, unsigned int k)
 {
-    uint8_t frag_in_err[NIOVA_EC_M_MAX] = {0};
     uint8_t *b = temp_matrix;
 
-    for (unsigned int i = 0; i < nerrs; i++)
-        frag_in_err[frag_err_list[i]] = 1;
-
-    for (unsigned int i = 0, r = 0; i < k; i++, r++)
+    for (unsigned int i = 0; i < k; i++)
     {
-        while (r < m && frag_in_err[r])
-            r++;
-        if (r >= m)
-            return -EINVAL;
         for (unsigned int j = 0; j < k; j++)
-            b[k * i + j] = encode_matrix[k * r + j];
-        decode_index[i] = (uint8_t)r;
+            b[k * i + j] = encode_matrix[k * decode_index[i] + j];
     }
 
     if (gf_invert_matrix(b, invert_matrix, (int)k) < 0)
@@ -253,25 +282,31 @@ niova_ec_gen_decode_matrix(const uint8_t *encode_matrix, uint8_t *decode_matrix,
 }
 
 int
-niova_ec_decode_prepare(struct niova_ec_decode *d, unsigned int k,
-                        unsigned int p, const unsigned int *erased_idx,
-                        unsigned int nerrs)
+niova_ec_decode_prepare_selected(struct niova_ec_decode *d, unsigned int k,
+                                 unsigned int p,
+                                 const unsigned int *erased_idx,
+                                 unsigned int nerrs,
+                                 const unsigned int *survivor_idx,
+                                 unsigned int nsurvivors)
 {
-    if (!d || !erased_idx || k == 0 || p == 0 ||
-        (k + p) > NIOVA_EC_M_MAX || nerrs == 0 || nerrs > p)
+    if (!d || k == 0 || p == 0 || (k + p) > NIOVA_EC_M_MAX)
         return -EINVAL;
 
     const unsigned int m = k + p;
 
-    uint8_t seen[NIOVA_EC_M_MAX] = {0};
+    uint8_t frag_in_err[NIOVA_EC_M_MAX] = {0};
     uint8_t frag_err_list[NIOVA_EC_M_MAX];
-    for (unsigned int i = 0; i < nerrs; i++)
-    {
-        if (erased_idx[i] >= m || seen[erased_idx[i]])
-            return -EINVAL;
-        seen[erased_idx[i]] = 1;
-        frag_err_list[i] = (uint8_t)erased_idx[i];
-    }
+    uint8_t decode_index[NIOVA_EC_M_MAX];
+
+    int rc = niova_ec_validate_erased(erased_idx, nerrs, p, m,
+                                      frag_err_list, frag_in_err);
+    if (rc)
+        return rc;
+
+    rc = niova_ec_validate_survivors(survivor_idx, nsurvivors, k, m,
+                                     frag_in_err, decode_index);
+    if (rc)
+        return rc;
 
     uint8_t encode_matrix[NIOVA_EC_M_MAX * NIOVA_EC_M_MAX];
     uint8_t decode_matrix[NIOVA_EC_M_MAX * NIOVA_EC_M_MAX];
@@ -284,10 +319,9 @@ niova_ec_decode_prepare(struct niova_ec_decode *d, unsigned int k,
     if (!g_tbls)
         return -ENOMEM;
 
-    int rc = niova_ec_gen_decode_matrix(encode_matrix, decode_matrix,
-                                        invert_matrix, temp_matrix,
-                                        d->decode_index, frag_err_list,
-                                        nerrs, k, m);
+    rc = niova_ec_gen_decode_matrix(encode_matrix, decode_matrix,
+                                    invert_matrix, temp_matrix, decode_index,
+                                    frag_err_list, nerrs, k);
     if (rc)
     {
         niova_free(g_tbls);
@@ -296,6 +330,7 @@ niova_ec_decode_prepare(struct niova_ec_decode *d, unsigned int k,
 
     ec_init_tables((int)k, (int)nerrs, decode_matrix, g_tbls);
 
+    memcpy(d->decode_index, decode_index, k);
     memset(d->slot_of_frag, 0xff, sizeof(d->slot_of_frag));
     for (unsigned int i = 0; i < k; i++)
         d->slot_of_frag[d->decode_index[i]] = (uint8_t)i;

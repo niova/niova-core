@@ -79,6 +79,162 @@ static void free_buffers(uint8_t **b, unsigned int n)
     free(b);
 }
 
+static bool
+buffer_is_zero(const uint8_t *b, size_t len)
+{
+    for (size_t i = 0; i < len; i++)
+    {
+        if (b[i])
+            return false;
+    }
+    return true;
+}
+
+static void
+build_first_k_survivors(unsigned int k, unsigned int m,
+                        const bool *is_erased, unsigned int *survivors)
+{
+    for (unsigned int i = 0, frag = 0; i < k; frag++)
+    {
+        FATAL_IF(frag >= m, "ec-test: not enough survivors");
+        if (!is_erased[frag])
+            survivors[i++] = frag;
+    }
+}
+
+static void
+check_selected_decode(const struct ec_test_geom *g, uint8_t **shards,
+                      const unsigned int *erased,
+                      const unsigned int *survivors,
+                      const unsigned int *feed_order,
+                      unsigned int non_selected,
+                      const uint8_t *expected,
+                      const char *case_name)
+{
+    struct niova_ec_decode dctx = {0};
+    int rc = niova_ec_decode_prepare_selected(&dctx, g->k, g->p, erased, 1,
+                                              survivors, g->k);
+    FATAL_IF(rc, "geom %s %s: prepare_selected -> %d",
+             g->tag, case_name, rc);
+
+    FATAL_IF(dctx.erased[0] != erased[0],
+             "geom %s %s: erased[0]=%u expected %u",
+             g->tag, case_name, dctx.erased[0], erased[0]);
+
+    for (unsigned int i = 0; i < g->k; i++)
+        FATAL_IF(dctx.decode_index[i] != survivors[i],
+                 "geom %s %s: decode_index[%u]=%u expected %u",
+                 g->tag, case_name, i, dctx.decode_index[i], survivors[i]);
+
+    uint8_t **rebuilt = alloc_buffers(1, g->len);
+
+    rc = niova_ec_decode_update(&dctx, non_selected, g->len,
+                                shards[non_selected], rebuilt);
+    FATAL_IF(rc != -ENOENT,
+             "geom %s %s: non-selected frag %u update -> %d",
+             g->tag, case_name, non_selected, rc);
+    FATAL_IF(!buffer_is_zero(rebuilt[0], g->len),
+             "geom %s %s: non-selected update mutated rebuilt output",
+             g->tag, case_name);
+
+    for (unsigned int i = 0; i < g->k; i++)
+    {
+        unsigned int frag = feed_order[i];
+        rc = niova_ec_decode_update(&dctx, frag, g->len, shards[frag],
+                                    rebuilt);
+        FATAL_IF(rc, "geom %s %s: selected frag %u update -> %d",
+                 g->tag, case_name, frag, rc);
+    }
+
+    FATAL_IF(memcmp(rebuilt[0], expected, g->len) != 0,
+             "geom %s %s: rebuilt frag %u mismatch",
+             g->tag, case_name, erased[0]);
+
+    niova_ec_decode_release(&dctx);
+    free_buffers(rebuilt, 1);
+}
+
+static void
+expect_prepare_selected_fails(const struct ec_test_geom *g,
+                              const unsigned int *erased,
+                              unsigned int nerrs,
+                              const unsigned int *survivors,
+                              unsigned int nsurvivors,
+                              const char *case_name)
+{
+    struct niova_ec_decode dctx = {0};
+    int rc = niova_ec_decode_prepare_selected(&dctx, g->k, g->p, erased,
+                                              nerrs, survivors, nsurvivors);
+    FATAL_IF(rc != -EINVAL, "geom %s %s: prepare_selected -> %d",
+             g->tag, case_name, rc);
+    niova_ec_decode_release(&dctx);
+}
+
+static void
+run_selected_decode_tests(const struct ec_test_geom *g, uint8_t **data,
+                          uint8_t **parity, uint8_t **shards)
+{
+    const unsigned int m = g->k + g->p;
+
+    unsigned int erased_data[] = {0};
+    unsigned int data_survivors[NIOVA_EC_M_MAX];
+    unsigned int data_feed_order[NIOVA_EC_M_MAX];
+
+    for (unsigned int i = 0; i < g->k - 2; i++)
+        data_survivors[i] = i + 1;
+    data_survivors[g->k - 2] = g->k;
+    data_survivors[g->k - 1] = g->k + 1;
+    for (unsigned int i = 0; i < g->k; i++)
+        data_feed_order[i] = data_survivors[g->k - i - 1];
+
+    check_selected_decode(g, shards, erased_data,
+                          data_survivors, data_feed_order, g->k - 1,
+                          data[0], "selected_data");
+
+    unsigned int erased_parity[] = {g->k};
+    unsigned int parity_survivors[NIOVA_EC_M_MAX];
+    unsigned int parity_feed_order[NIOVA_EC_M_MAX];
+
+    for (unsigned int i = 0; i < g->k - 1; i++)
+        parity_survivors[i] = i;
+    parity_survivors[g->k - 1] = g->k + 1;
+    for (unsigned int i = 0; i < g->k; i++)
+        parity_feed_order[i] = parity_survivors[g->k - i - 1];
+
+    check_selected_decode(g, shards, erased_parity,
+                          parity_survivors, parity_feed_order, g->k - 1,
+                          parity[0], "selected_parity");
+
+    unsigned int invalid_survivors[NIOVA_EC_M_MAX];
+    memcpy(invalid_survivors, data_survivors,
+           sizeof(unsigned int) * g->k);
+
+    invalid_survivors[1] = invalid_survivors[0];
+    expect_prepare_selected_fails(g, erased_data, 1, invalid_survivors, g->k,
+                                  "duplicate_survivor");
+
+    memcpy(invalid_survivors, data_survivors,
+           sizeof(unsigned int) * g->k);
+    invalid_survivors[1] = erased_data[0];
+    expect_prepare_selected_fails(g, erased_data, 1, invalid_survivors, g->k,
+                                  "erased_survivor");
+
+    memcpy(invalid_survivors, data_survivors,
+           sizeof(unsigned int) * g->k);
+    invalid_survivors[1] = m;
+    expect_prepare_selected_fails(g, erased_data, 1, invalid_survivors, g->k,
+                                  "out_of_range_survivor");
+
+    expect_prepare_selected_fails(g, erased_data, 1, data_survivors,
+                                  g->k - 1, "too_few_survivors");
+    expect_prepare_selected_fails(g, erased_data, 1, data_survivors,
+                                  g->k + 1, "too_many_survivors");
+
+    unsigned int duplicate_erased[] = {0, 0};
+    expect_prepare_selected_fails(g, duplicate_erased, 2, data_survivors,
+                                  g->k, "duplicate_erased");
+}
+
 static void
 run_geom(const struct ec_test_geom *g, const struct ec_reference_entry *ref)
 {
@@ -115,6 +271,8 @@ run_geom(const struct ec_test_geom *g, const struct ec_reference_entry *ref)
     for (unsigned int i = 0; i < g->p;i ++)
         memcpy(shards[g->k + i], parity[i], g->len);
 
+    run_selected_decode_tests(g, data, parity, shards);
+
     // Erase a mix: first half_data data shards, then half_par parity shards.
     const unsigned int nerrs     = g->p;
     const unsigned int half_data = nerrs / 2;
@@ -129,9 +287,13 @@ run_geom(const struct ec_test_geom *g, const struct ec_reference_entry *ref)
     for (unsigned int i = 0; i < nerrs; i++)
         is_erased[erased[i]] = true;
 
+    unsigned int survivors[NIOVA_EC_M_MAX];
+    build_first_k_survivors(g->k, m, is_erased, survivors);
+
     struct niova_ec_decode dctx = {0};
-    rc = niova_ec_decode_prepare(&dctx, g->k, g->p, erased, nerrs);
-    FATAL_IF(rc, "niova_ec_decode_prepare -> %d", rc);
+    rc = niova_ec_decode_prepare_selected(&dctx, g->k, g->p, erased, nerrs,
+                                          survivors, g->k);
+    FATAL_IF(rc, "niova_ec_decode_prepare_selected -> %d", rc);
 
     // calloc, so rebuilt[] starts zeroed as decode_update requires.
     uint8_t **rebuilt = alloc_buffers(nerrs, g->len);
@@ -176,4 +338,3 @@ main(void)
         run_geom(&ec_test_geoms[i], &ec_reference_table[i]);
     return 0;
 }
-

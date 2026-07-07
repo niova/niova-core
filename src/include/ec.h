@@ -83,21 +83,24 @@ niova_ec_encode_update(const struct niova_ec_encode_cache *cache,
                        unsigned int k, unsigned int src_idx, size_t len,
                        const uint8_t *src, uint8_t **parity);
 
-/* Build a decode context for a given erasure pattern.
+/* Build a decode context for exactly k caller-selected survivors.
  *
- * `erased_idx[0..nerrs-1]` lists missing fragment indices in [0, k+p).
- * Indices must be in range and unique, nerrs must be in [1, p] otherwise
- * data is not recoverable.
+ * erased_idx[] lists nerrs unique missing indices in [0, k+p),
+ * with nerrs in [1, p].
+ * survivor_idx[] lists nsurvivors == k unique indices in [0, k+p),
+ * excluding erased_idx[]. Its order defines the decode matrix order.
+ * Peers sharing attempt identity should choose a deterministic order.
  *
- * After this call, `d->erased[i]` is the original frag idx that will be
- * written to rebuilt[i] by niova_ec_decode_update().
- *
- * Note: This function is only used for testing.
+ * d->erased[i] identifies the fragment rebuilt into rebuilt[i].
+ * See niova_ec_decode_update() for input order and error handling.
  */
 int
-niova_ec_decode_prepare(struct niova_ec_decode *d, unsigned int k,
-                        unsigned int p, const unsigned int *erased_idx,
-                        unsigned int nerrs);
+niova_ec_decode_prepare_selected(struct niova_ec_decode *d, unsigned int k,
+                                 unsigned int p,
+                                 const unsigned int *erased_idx,
+                                 unsigned int nerrs,
+                                 const unsigned int *survivor_idx,
+                                 unsigned int nsurvivors);
 
 /* Fold one surviving fragment into the running rebuild. The caller must:
  *  - zero rebuilt[0..d->nerrs-1] before the first call for a stripe (calloc
@@ -106,8 +109,6 @@ niova_ec_decode_prepare(struct niova_ec_decode *d, unsigned int k,
  *
  * Returns 0 on success, -ENOENT if `frag_idx` is not part of the chosen
  * recovery set, -EINVAL on bad arguments.
- *
- * Note: This function is only used for testing.
  */
 int
 niova_ec_decode_update(const struct niova_ec_decode *d, unsigned int frag_idx,
