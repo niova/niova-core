@@ -214,6 +214,12 @@ lctli_inotify_parse_buffer(char *buf, size_t len, void *arg)
     lctli_inotify_thread_poll_parse_buffer(lctli, buf, len);
 }
 
+int
+lctli_get_default_output_dirfd(void)
+{
+    return localCtlIf[LCTLI_DEFAULT_IDX].lctli_output_dirfd;
+}
+
 static util_thread_ctx_t
 lctli_inotify_thread_poll_handle_event(struct ctl_interface *lctli)
 {
