@@ -39,4 +39,7 @@ lctli_util_thread_unregister(void);
 void
 lctli_inotify_parse_buffer(char *buf, size_t len, void *arg);
 
+int
+lctli_get_default_output_dirfd(void);
+
 #endif //_CTL_INTERFACE_
