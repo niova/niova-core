@@ -386,13 +386,23 @@ niova_string_to_unsigned_long_long(const char *string, unsigned long long *val)
     if (!string || !val)
         return -EINVAL;
 
+    /* strtoull() accepts signs, whitespace, and partial strings.  This helper
+     * requires one complete, unsigned decimal value.
+     */
+    if (string[0] < '0' || string[0] > '9')
+        return -EINVAL;
+
     errno = 0;
-    unsigned long long tmp = strtoull(string, NULL, 10);
-    if (tmp == ULLONG_MAX && errno)
+    char *end = NULL;
+    unsigned long long tmp = strtoull(string, &end, 10);
+
+    if (errno)
         return -errno;
 
-    else
-        *val = tmp;
+    if (end == string || *end != '\0')
+        return -EINVAL;
+
+    *val = tmp;
 
     return 0;
 }
@@ -403,13 +413,24 @@ niova_string_to_long_long(const char *string, long long *val)
     if (!string || !val)
         return -EINVAL;
 
+    const char *digits = string;
+    if (*digits == '+' || *digits == '-')
+        digits++;
+
+    if (*digits < '0' || *digits > '9')
+        return -EINVAL;
+
     errno = 0;
-    long long tmp = strtoll(string, NULL, 10);
-    if ((tmp == LONG_MIN || tmp == LONG_MAX) && errno)
+    char *end = NULL;
+    long long tmp = strtoll(string, &end, 10);
+
+    if (errno)
         return -errno;
 
-    else
-        *val = tmp;
+    if (end == string || *end != '\0')
+        return -EINVAL;
+
+    *val = tmp;
 
     return 0;
 }
@@ -420,16 +441,23 @@ niova_string_to_unsigned_int(const char *string, unsigned int *val)
     if (!string || !val)
         return -EINVAL;
 
+    if (string[0] < '0' || string[0] > '9')
+        return -EINVAL;
+
     errno = 0;
-    unsigned long tmp = strtoul(string, NULL, 10);
-    if (tmp == ULONG_MAX && errno)
+    char *end = NULL;
+    unsigned long tmp = strtoul(string, &end, 10);
+
+    if (errno)
         return -errno;
 
-    else if (tmp > UINT_MAX)
+    if (end == string || *end != '\0')
+        return -EINVAL;
+
+    if (tmp > UINT_MAX)
         return -EOVERFLOW;
 
-    else
-        *val = (unsigned int)tmp;
+    *val = (unsigned int)tmp;
 
     return 0;
 }

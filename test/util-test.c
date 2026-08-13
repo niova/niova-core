@@ -36,7 +36,8 @@ mk_time_string_test(void)
 static void
 niova_string_to_unsigned_long_long_test(void)
 {
-    unsigned long long val = 0;
+    const unsigned long long sentinel = 42;
+    unsigned long long val = sentinel;
 
     int rc = niova_string_to_unsigned_long_long("", NULL);
     MY_FATAL_IF(rc != -EINVAL, "expected -EINVAL, got %d", rc);
@@ -44,37 +45,110 @@ niova_string_to_unsigned_long_long_test(void)
     rc = niova_string_to_unsigned_long_long("foo", NULL);
     MY_FATAL_IF(rc != -EINVAL, "expected -EINVAL, got %d", rc);
 
+    rc = niova_string_to_unsigned_long_long(NULL, &val);
+    MY_FATAL_IF(rc != -EINVAL || val != sentinel,
+                "expected -EINVAL and unchanged val, got %d val=%llu", rc, val);
+
+    rc = niova_string_to_unsigned_long_long("", &val);
+    MY_FATAL_IF(rc != -EINVAL || val != sentinel,
+                "expected -EINVAL and unchanged val, got %d val=%llu", rc, val);
+
     rc = niova_string_to_unsigned_long_long("foo", &val);
-    MY_FATAL_IF(rc, "expected 0, got %d val=%llu", rc, val);
+    MY_FATAL_IF(rc != -EINVAL || val != sentinel,
+                "expected -EINVAL and unchanged val, got %d val=%llu", rc, val);
 
     rc = niova_string_to_unsigned_long_long("-1", &val);
-    MY_FATAL_IF((rc || val != ULLONG_MAX),
-                "expected 0, got %d OR expected val=%llu got %llu",
-                rc, ULLONG_MAX, val);
+    MY_FATAL_IF(rc != -EINVAL || val != sentinel,
+                "expected -EINVAL and unchanged val, got %d val=%llu", rc, val);
 
-    rc = niova_string_to_unsigned_long_long("-2", &val);
-    MY_FATAL_IF((rc || val != (ULLONG_MAX - 1)),
-                "expected 0, got %d OR expected val=%llu got %llu",
-                rc, ULLONG_MAX - 1, val);
+    rc = niova_string_to_unsigned_long_long("+1", &val);
+    MY_FATAL_IF(rc != -EINVAL || val != sentinel,
+                "expected -EINVAL and unchanged val, got %d val=%llu", rc, val);
+
+    rc = niova_string_to_unsigned_long_long(" 1", &val);
+    MY_FATAL_IF(rc != -EINVAL || val != sentinel,
+                "expected -EINVAL and unchanged val, got %d val=%llu", rc, val);
+
+    rc = niova_string_to_unsigned_long_long("0xdeadbeef", &val);
+    MY_FATAL_IF(rc != -EINVAL || val != sentinel,
+                "expected -EINVAL and unchanged val, got %d val=%llu", rc, val);
+
+    rc = niova_string_to_unsigned_long_long("1junk", &val);
+    MY_FATAL_IF(rc != -EINVAL || val != sentinel,
+                "expected -EINVAL and unchanged val, got %d val=%llu", rc, val);
+
+    rc = niova_string_to_unsigned_long_long("1.0", &val);
+    MY_FATAL_IF(rc != -EINVAL || val != sentinel,
+                "expected -EINVAL and unchanged val, got %d val=%llu", rc, val);
+
+    rc = niova_string_to_unsigned_long_long("18446744073709551616", &val);
+    MY_FATAL_IF(rc != -ERANGE || val != sentinel,
+                "expected -ERANGE and unchanged val, got %d val=%llu", rc, val);
+
+    rc = niova_string_to_unsigned_long_long("0", &val);
+    MY_FATAL_IF(rc || val != 0, "expected 0, got %d val=%llu", rc, val);
 
     rc = niova_string_to_unsigned_long_long("1", &val);
-    MY_FATAL_IF((rc || val != 1),
-                "expected 0, got %d (val expects '1' (%llu))", rc, val);
-
-    // Currently there's no hex support
-    rc = niova_string_to_unsigned_long_long("0xdeadbeef", &val);
-    MY_FATAL_IF((rc || val != 0), "expected, got %d", rc);
+    MY_FATAL_IF(rc || val != 1, "expected 1, got %d val=%llu", rc, val);
 
     rc = niova_string_to_unsigned_long_long("18446744073709551615", &val);
-    MY_FATAL_IF(rc,
-                "expected 0, got %d (val expects 18446744073709551615 (%llu))",
-                rc, val);
+    MY_FATAL_IF(rc || val != ULLONG_MAX,
+                "expected ULLONG_MAX, got %d val=%llu", rc, val);
+}
+
+static void
+niova_string_to_long_long_test(void)
+{
+    const long long sentinel = 42;
+    long long val = sentinel;
+
+    int rc = niova_string_to_long_long(NULL, &val);
+    MY_FATAL_IF(rc != -EINVAL || val != sentinel,
+                "expected -EINVAL and unchanged val, got %d val=%lld", rc, val);
+
+    const char *invalid[] = {
+        "", "foo", "+", "-", " 1", "1junk", "1.0", "0x1",
+    };
+
+    for (size_t i = 0; i < ARRAY_SIZE(invalid); i++)
+    {
+        rc = niova_string_to_long_long(invalid[i], &val);
+        MY_FATAL_IF(rc != -EINVAL || val != sentinel,
+                    "input='%s' expected -EINVAL and unchanged val, "
+                    "got %d val=%lld", invalid[i], rc, val);
+    }
+
+    rc = niova_string_to_long_long("9223372036854775808", &val);
+    MY_FATAL_IF(rc != -ERANGE || val != sentinel,
+                "expected -ERANGE and unchanged val, got %d val=%lld", rc, val);
+
+    rc = niova_string_to_long_long("-9223372036854775809", &val);
+    MY_FATAL_IF(rc != -ERANGE || val != sentinel,
+                "expected -ERANGE and unchanged val, got %d val=%lld", rc, val);
+
+    rc = niova_string_to_long_long("0", &val);
+    MY_FATAL_IF(rc || val != 0, "expected 0, got %d val=%lld", rc, val);
+
+    rc = niova_string_to_long_long("+1", &val);
+    MY_FATAL_IF(rc || val != 1, "expected 1, got %d val=%lld", rc, val);
+
+    rc = niova_string_to_long_long("-1", &val);
+    MY_FATAL_IF(rc || val != -1, "expected -1, got %d val=%lld", rc, val);
+
+    rc = niova_string_to_long_long("9223372036854775807", &val);
+    MY_FATAL_IF(rc || val != LLONG_MAX,
+                "expected LLONG_MAX, got %d val=%lld", rc, val);
+
+    rc = niova_string_to_long_long("-9223372036854775808", &val);
+    MY_FATAL_IF(rc || val != LLONG_MIN,
+                "expected LLONG_MIN, got %d val=%lld", rc, val);
 }
 
 static void
 niova_string_to_unsigned_int_test(void)
 {
-    unsigned int tmp = 0;
+    const unsigned int sentinel = 42;
+    unsigned int val = sentinel;
 
     int rc = niova_string_to_unsigned_int("", NULL);
     MY_FATAL_IF(rc != -EINVAL, "expected -EINVAL, got %d", rc);
@@ -82,27 +156,38 @@ niova_string_to_unsigned_int_test(void)
     rc = niova_string_to_unsigned_int("1", NULL);
     MY_FATAL_IF(rc != -EINVAL, "expected -EINVAL, got %d", rc);
 
-    rc = niova_string_to_unsigned_int(NULL, &tmp);
-    MY_FATAL_IF(rc != -EINVAL, "expected -EINVAL, got %d (val=%u)", rc, tmp);
+    rc = niova_string_to_unsigned_int(NULL, &val);
+    MY_FATAL_IF(rc != -EINVAL || val != sentinel,
+                "expected -EINVAL and unchanged val, got %d val=%u", rc, val);
 
-    tmp = 666;
-    rc = niova_string_to_unsigned_int("", &tmp);
-    MY_FATAL_IF((rc || tmp), "expected 0, got %d (val=%u)", rc, tmp);
+    const char *invalid[] = {
+        "", "foo", "-1", "+1", " 1", "1junk", "1.0", "0x1",
+    };
 
-    rc = niova_string_to_unsigned_int("18446744073709551615", &tmp);
-    MY_FATAL_IF(rc != -EOVERFLOW, "expected -EOVERFLOW, got %d", rc);
+    for (size_t i = 0; i < ARRAY_SIZE(invalid); i++)
+    {
+        rc = niova_string_to_unsigned_int(invalid[i], &val);
+        MY_FATAL_IF(rc != -EINVAL || val != sentinel,
+                    "input='%s' expected -EINVAL and unchanged val, "
+                    "got %d val=%u", invalid[i], rc, val);
+    }
+
+    rc = niova_string_to_unsigned_int("18446744073709551615", &val);
+    MY_FATAL_IF(rc != -EOVERFLOW || val != sentinel,
+                "expected -EOVERFLOW and unchanged val, got %d val=%u", rc, val);
 
     // UINT_MAX + 1
-    rc = niova_string_to_unsigned_int("4294967296", &tmp);
-    MY_FATAL_IF(rc != -EOVERFLOW, "expected -EOVERFLOW, got %d", rc);
+    rc = niova_string_to_unsigned_int("4294967296", &val);
+    MY_FATAL_IF(rc != -EOVERFLOW || val != sentinel,
+                "expected -EOVERFLOW and unchanged val, got %d val=%u", rc, val);
 
-    rc = niova_string_to_unsigned_int("4294967295", &tmp);
-    MY_FATAL_IF((rc || tmp != UINT_MAX),
+    rc = niova_string_to_unsigned_int("4294967295", &val);
+    MY_FATAL_IF((rc || val != UINT_MAX),
                 "expected 0, got %d - val expects %u got val=%u",
-                rc, UINT_MAX, tmp);
+                rc, UINT_MAX, val);
 
-    rc = niova_string_to_unsigned_int("0", &tmp);
-    MY_FATAL_IF((rc || tmp != 0), "expected 0, got %d val=%u", rc, tmp);
+    rc = niova_string_to_unsigned_int("0", &val);
+    MY_FATAL_IF((rc || val != 0), "expected 0, got %d val=%u", rc, val);
 }
 
 static void
@@ -307,6 +392,7 @@ main(void)
     util_offset_cast_test();
     mk_time_string_test();
     niova_string_to_unsigned_long_long_test();
+    niova_string_to_long_long_test();
     niova_string_to_unsigned_int_test();
     niova_parse_comma_delimited_uint_string_test();
     niova_crc_test();
