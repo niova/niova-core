@@ -214,6 +214,54 @@ niova_bitmap_set(struct niova_bitmap *nb, unsigned int idx)
     return niova_bitmap_set_unset(nb, idx, true);
 }
 
+/* Bulk bit-range helpers: set/clear/test `width` contiguous bits starting at
+ * `idx` in one word access instead of a bit-by-bit loop. `idx` must be a
+ * multiple of `width`, and `width` must divide NB_WORD_TYPE_SZ_BITS (true
+ * for e32/e64/e128 fvblks, which are 8/16/32 4k-vblks wide) - that keeps the
+ * range inside a single word, no boundary-crossing to worry about.
+ */
+static inline bitmap_word_t
+niova_bitmap_range_mask(unsigned int idx, unsigned int width)
+{
+    unsigned int bit_off = idx % NB_WORD_TYPE_SZ_BITS;
+
+    return width == NB_WORD_TYPE_SZ_BITS ?
+        NB_WORD_ANY : ((((bitmap_word_t)1) << width) - 1) << bit_off;
+}
+
+static inline void
+niova_bitmap_range_set(struct niova_bitmap *nb, unsigned int idx,
+                       unsigned int width)
+{
+    nb->nb_map[NB_MAP_WORD_IDX(idx)] |= niova_bitmap_range_mask(idx, width);
+}
+
+static inline void
+niova_bitmap_range_unset(struct niova_bitmap *nb, unsigned int idx,
+                         unsigned int width)
+{
+    nb->nb_map[NB_MAP_WORD_IDX(idx)] &= ~niova_bitmap_range_mask(idx, width);
+}
+
+/* True only if every bit in the range is set */
+static inline bool
+niova_bitmap_range_is_set(const struct niova_bitmap *nb, unsigned int idx,
+                          unsigned int width)
+{
+    bitmap_word_t mask = niova_bitmap_range_mask(idx, width);
+
+    return (nb->nb_map[NB_MAP_WORD_IDX(idx)] & mask) == mask;
+}
+
+/* 0 == fully free, width == fully set, else == partially set */
+static inline unsigned int
+niova_bitmap_range_popcount(const struct niova_bitmap *nb, unsigned int idx,
+                            unsigned int width)
+{
+    return number_of_ones_in_val(
+        nb->nb_map[NB_MAP_WORD_IDX(idx)] & niova_bitmap_range_mask(idx, width));
+}
+
 static inline int
 niova_bitmap_copy(struct niova_bitmap *dest,
                   const struct niova_bitmap *src)
