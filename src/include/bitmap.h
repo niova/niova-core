@@ -219,6 +219,37 @@ niova_bitmap_set(struct niova_bitmap *nb, unsigned int idx)
  * multiple of `width`, and `width` must divide NB_WORD_TYPE_SZ_BITS (true
  * for e32/e64/e128 fvblks, which are 8/16/32 4k-vblks wide) - that keeps the
  * range inside a single word, no boundary-crossing to worry about.
+ *
+ * These are hot-path primitives (compaction/merge), so the one-word and
+ * bounds contract is enforced via NIOVA_ASSERT rather than a return code -
+ * every caller already guarantees it by construction (fat-vblk widths are
+ * naturally aligned), so a violation here is a caller bug, not a runtime
+ * condition to recover from. niova_bitmap_set()/unset() remain the
+ * return-code-checked single-bit API for callers that need one.
+ */
+static inline void
+niova_bitmap_range_validate_width(unsigned int idx, unsigned int width)
+{
+    NIOVA_ASSERT(width > 0 && width <= NB_WORD_TYPE_SZ_BITS);
+
+    // NIOVA_ASSERT stringifies its condition into a printf format string,
+    // so the modulo must be computed here rather than inline - a literal
+    // '%' in the asserted expression becomes a bogus conversion specifier.
+    unsigned int bit_off = idx % NB_WORD_TYPE_SZ_BITS;
+    NIOVA_ASSERT(bit_off + width <= NB_WORD_TYPE_SZ_BITS);
+}
+
+static inline void
+niova_bitmap_range_validate(const struct niova_bitmap *nb, unsigned int idx,
+                            unsigned int width)
+{
+    NIOVA_ASSERT(nb && nb->nb_map);
+    niova_bitmap_range_validate_width(idx, width);
+    NIOVA_ASSERT((size_t)idx + width <= nb->nb_max_idx);
+}
+
+/* Callers below have already validated (idx, width) via
+ * niova_bitmap_range_validate() before reaching this internal helper.
  */
 static inline bitmap_word_t
 niova_bitmap_range_mask(unsigned int idx, unsigned int width)
@@ -233,6 +264,8 @@ static inline void
 niova_bitmap_range_set(struct niova_bitmap *nb, unsigned int idx,
                        unsigned int width)
 {
+    niova_bitmap_range_validate(nb, idx, width);
+
     nb->nb_map[NB_MAP_WORD_IDX(idx)] |= niova_bitmap_range_mask(idx, width);
 }
 
@@ -240,6 +273,8 @@ static inline void
 niova_bitmap_range_unset(struct niova_bitmap *nb, unsigned int idx,
                          unsigned int width)
 {
+    niova_bitmap_range_validate(nb, idx, width);
+
     nb->nb_map[NB_MAP_WORD_IDX(idx)] &= ~niova_bitmap_range_mask(idx, width);
 }
 
@@ -248,6 +283,8 @@ static inline bool
 niova_bitmap_range_is_set(const struct niova_bitmap *nb, unsigned int idx,
                           unsigned int width)
 {
+    niova_bitmap_range_validate(nb, idx, width);
+
     bitmap_word_t mask = niova_bitmap_range_mask(idx, width);
 
     return (nb->nb_map[NB_MAP_WORD_IDX(idx)] & mask) == mask;
@@ -258,6 +295,8 @@ static inline unsigned int
 niova_bitmap_range_popcount(const struct niova_bitmap *nb, unsigned int idx,
                             unsigned int width)
 {
+    niova_bitmap_range_validate(nb, idx, width);
+
     return number_of_ones_in_val(
         nb->nb_map[NB_MAP_WORD_IDX(idx)] & niova_bitmap_range_mask(idx, width));
 }
