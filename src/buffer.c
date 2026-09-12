@@ -129,7 +129,12 @@ buffer_page_size_set(void)
 unsigned int
 buffer_get_alignment(enum buffer_set_opts opts)
 {
+    buffer_page_size_set();
+
     // Start from the largest and work downwards
+    if (opts & BUFSET_OPT_MEMALIGN_PAGE)
+        return bufferSetPageSize;
+
     if (opts & BUFSET_OPT_MEMALIGN_SECTOR || opts & BUFSET_OPT_MEMALIGN)
         return BUFFER_SECTOR_SIZE;
 
@@ -516,6 +521,16 @@ buffer_set_initx(struct buffer_set_args *bsa)
         goto xerror;
     }
 
+    const unsigned int alignment_opts =
+        opts & BUFFSET_OPT_ALIGNMENT_FLAGS_MASK;
+
+    if (alignment_opts && (alignment_opts & (alignment_opts - 1)))
+    {
+        rc = -EINVAL;
+        err_loc = 10;
+        goto xerror;
+    }
+
     unsigned int align = bsa->bsa_alignment ?
         bsa->bsa_alignment : buffer_get_alignment(bsa->bsa_opts);
 
@@ -612,7 +627,8 @@ buffer_set_initx(struct buffer_set_args *bsa)
         NIOVA_ASSERT(!prev_end || prologue_start >= prev_end);
 
         NIOVA_ASSERT(
-            (uintptr_t)iov_base == (prologue_start + (uintptr_t)prologue_size));
+            (uintptr_t)iov_base ==
+            (prologue_start + (uintptr_t)prologue_size));
 
         prev_end =
             (uintptr_t)((char *)bi->bi_iov.iov_base + bi->bi_iov.iov_len);
