@@ -129,7 +129,12 @@ buffer_page_size_set(void)
 unsigned int
 buffer_get_alignment(enum buffer_set_opts opts)
 {
+    buffer_page_size_set();
+
     // Start from the largest and work downwards
+    if (opts & BUFSET_OPT_MEMALIGN_PAGE)
+        return bufferSetPageSize;
+
     if (opts & BUFSET_OPT_MEMALIGN_SECTOR || opts & BUFSET_OPT_MEMALIGN)
         return BUFFER_SECTOR_SIZE;
 
@@ -509,13 +514,6 @@ buffer_set_initx(struct buffer_set_args *bsa)
         goto xerror;
     }
 
-    if (s_region_size < (nbufs * (buf_size + prologue_size)))
-    {
-        rc = -EOVERFLOW;
-        err_loc = 4;
-        goto xerror;
-    }
-
     unsigned int align = bsa->bsa_alignment ?
         bsa->bsa_alignment : buffer_get_alignment(bsa->bsa_opts);
 
@@ -527,17 +525,15 @@ buffer_set_initx(struct buffer_set_args *bsa)
         goto xerror;
     }
 
-    if (align && !IS_ALIGNED(buf_size, align))
-    {
-        rc = -EDOM;
-        err_loc = 6;
-        goto xerror;
-    }
+    const size_t buf_stride = align ? ALIGN_UP(buf_size, align) : buf_size;
+    const size_t prologue_stride = prologue_size && align ?
+        ALIGN_UP(prologue_size, align) : prologue_size;
+    const size_t item_stride = prologue_stride + buf_stride;
 
-    if (align && prologue_size && !IS_ALIGNED(prologue_size, align))
+    if (s_region_size < (nbufs * item_stride))
     {
-        rc = -EDOM;
-        err_loc = 7;
+        rc = -EOVERFLOW;
+        err_loc = 4;
         goto xerror;
     }
 
@@ -594,7 +590,7 @@ buffer_set_initx(struct buffer_set_args *bsa)
         bi->bi_iov.iov_len = buf_size;
         bi->bi_register_idx = -1;
 
-        NIOVA_ASSERT(off + buf_size + prologue_size <= s_region_size);
+        NIOVA_ASSERT(off + item_stride <= s_region_size);
 
 
         /* |<---hidden---->|<------exposed------>|
@@ -605,19 +601,20 @@ buffer_set_initx(struct buffer_set_args *bsa)
 
         prologue_start = (uintptr_t)((char *)s_region + off);
 
-        char *iov_base = (char *)s_region + off + prologue_size;
+        char *iov_base = (char *)s_region + off + prologue_stride;
         bi->bi_iov.iov_base = iov_base;
 
         /* Rule out buffer/prologue address overlap */
         NIOVA_ASSERT(!prev_end || prologue_start >= prev_end);
 
         NIOVA_ASSERT(
-            (uintptr_t)iov_base == (prologue_start + (uintptr_t)prologue_size));
+            (uintptr_t)iov_base ==
+            (prologue_start + (uintptr_t)prologue_stride));
 
         prev_end =
             (uintptr_t)((char *)bi->bi_iov.iov_base + bi->bi_iov.iov_len);
 
-        off += buf_size + prologue_size;
+        off += item_stride;
 
         SIMPLE_LOG_MSG(LL_NOTIFY,
             "prlg_sz %ld bf_sz %ld base[%ld] 0x%lx end[%ld] 0x%lx alignment %u",
