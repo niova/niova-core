@@ -384,12 +384,12 @@ buffer_page_memalign_size_test(void)
     };
 
     rc = buffer_set_initx(&bsa);
-    NIOVA_ASSERT(rc == -EDOM);
+    NIOVA_ASSERT(rc == -EFAULT);
 
     bsa.bsa_buf_size = alignment;
     bsa.bsa_prologue_size = 512;
     rc = buffer_set_initx(&bsa);
-    NIOVA_ASSERT(rc == -EDOM);
+    NIOVA_ASSERT(rc == -EFAULT);
 
     bsa.bsa_prologue_size = alignment;
     rc = buffer_set_initx(&bsa);

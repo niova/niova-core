@@ -527,39 +527,39 @@ buffer_set_initx(struct buffer_set_args *bsa)
     if (alignment_opts && (alignment_opts & (alignment_opts - 1)))
     {
         rc = -EINVAL;
-        err_loc = 10;
+        err_loc = 5;
         goto xerror;
     }
 
     unsigned int align = bsa->bsa_alignment ?
         bsa->bsa_alignment : buffer_get_alignment(bsa->bsa_opts);
 
+    if (align && !IS_ALIGNED_PTR(s_region, align))
+    {
+        rc = -EFAULT;
+        err_loc = 6;
+        goto xerror;
+    }
+
     /* Alignment should be power of 2 */
     if (align && !IS_POWER2(align))
     {
-        rc = -EDOM;
-        err_loc = 5;
+        rc = -EFAULT;
+        err_loc = 7;
         goto xerror;
     }
 
     if (align && !IS_ALIGNED(buf_size, align))
     {
-        rc = -EDOM;
-        err_loc = 6;
+        rc = -EFAULT;
+        err_loc = 8;
         goto xerror;
     }
 
     if (align && prologue_size && !IS_ALIGNED(prologue_size, align))
     {
-        rc = -EDOM;
-        err_loc = 7;
-        goto xerror;
-    }
-
-    if (align && !IS_ALIGNED_PTR(s_region, align))
-    {
         rc = -EFAULT;
-        err_loc = 8;
+        err_loc = 9;
         goto xerror;
     }
 
@@ -601,7 +601,7 @@ buffer_set_initx(struct buffer_set_args *bsa)
         if (!bi)
         {
             rc = -ENOMEM;
-            err_loc = 9;
+            err_loc = 10;
             goto xerror;
         }
 
