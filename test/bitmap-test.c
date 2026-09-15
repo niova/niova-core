@@ -459,6 +459,130 @@ niova_bitmap_iterate_test(void)
                  (number_of_ones_in_val(0x7070707070707070) * size));
 }
 
+static void
+niova_bitmap_range_test(void)
+{
+    size_t size = 4;
+
+    struct niova_bitmap x = {0};
+    bitmap_word_t x_map[size];
+
+    int rc = niova_bitmap_attach_and_init(&x, x_map, size);
+    NIOVA_ASSERT(!rc);
+
+    const unsigned int width = 8;
+
+    // Fresh bitmap: nothing set, nothing partially set
+    for (unsigned int idx = 0; idx < size * NB_WORD_TYPE_SZ_BITS;
+         idx += width)
+    {
+        NIOVA_ASSERT(!niova_bitmap_range_is_set(&x, idx, width));
+        NIOVA_ASSERT(!niova_bitmap_range_popcount(&x, idx, width));
+    }
+
+    // Set one range, verify it and only it is affected
+    niova_bitmap_range_set(&x, 8, width);
+
+    NIOVA_ASSERT(niova_bitmap_range_is_set(&x, 8, width));
+    NIOVA_ASSERT(niova_bitmap_range_popcount(&x, 8, width) == width);
+    NIOVA_ASSERT(!niova_bitmap_range_is_set(&x, 0, width));
+    NIOVA_ASSERT(!niova_bitmap_range_popcount(&x, 0, width));
+    NIOVA_ASSERT(!niova_bitmap_range_is_set(&x, 16, width));
+    NIOVA_ASSERT(!niova_bitmap_range_popcount(&x, 16, width));
+
+    // Adjacent single bits outside the range must be untouched
+    NIOVA_ASSERT(!niova_bitmap_is_set(&x, 7));
+    NIOVA_ASSERT(!niova_bitmap_is_set(&x, 16));
+    for (unsigned int i = 8; i < 16; i++)
+        NIOVA_ASSERT(niova_bitmap_is_set(&x, i));
+
+    // Raw word check, independent of NB_MAP_WORD_IDX(): only word 0 holds
+    // any bits, and only the [8,16) range within it.
+    NIOVA_ASSERT(x.nb_map[0] == 0xff00ULL);
+    for (unsigned int w = 1; w < size; w++)
+        NIOVA_ASSERT(x.nb_map[w] == 0);
+
+    /* Re-setting an already-set range is a no-op, not an error: real
+     * callers (mb2_compaction_claim_ece/ecre_bits() in niova-block)
+     * deliberately re-claim vblks that a newer compaction entry already
+     * owns, using popcount() beforehand to learn how much overlapped.
+     */
+    niova_bitmap_range_set(&x, 8, width);
+    NIOVA_ASSERT(niova_bitmap_range_is_set(&x, 8, width));
+    NIOVA_ASSERT(niova_bitmap_range_popcount(&x, 8, width) == width);
+
+    // Re-set with a narrower width fully inside the set range: also a no-op
+    niova_bitmap_range_set(&x, 8, 4);
+    NIOVA_ASSERT(niova_bitmap_range_is_set(&x, 8, width));
+
+    // Partially-set range: popcount is between 0 and width, is_set is false
+    niova_bitmap_range_unset(&x, 12, 4);
+    NIOVA_ASSERT(!niova_bitmap_range_is_set(&x, 8, width));
+    NIOVA_ASSERT(niova_bitmap_range_popcount(&x, 8, width) == 4);
+
+    // Unsetting an already-unset range is likewise a harmless no-op
+    niova_bitmap_range_unset(&x, 0, width);
+    NIOVA_ASSERT(!niova_bitmap_range_popcount(&x, 0, width));
+
+    // Unset the remainder, then confirm the whole range is clear
+    niova_bitmap_range_unset(&x, 8, 4);
+    NIOVA_ASSERT(!niova_bitmap_range_popcount(&x, 8, width));
+    NIOVA_ASSERT(niova_bitmap_inuse(&x) == 0);
+
+    // Full-word width (NB_WORD_TYPE_SZ_BITS) exercises the NB_WORD_ANY mask
+    niova_bitmap_range_set(&x, NB_WORD_TYPE_SZ_BITS, NB_WORD_TYPE_SZ_BITS);
+    NIOVA_ASSERT(niova_bitmap_range_is_set(&x, NB_WORD_TYPE_SZ_BITS,
+                                           NB_WORD_TYPE_SZ_BITS));
+    NIOVA_ASSERT(niova_bitmap_range_popcount(&x, NB_WORD_TYPE_SZ_BITS,
+                                             NB_WORD_TYPE_SZ_BITS) ==
+                NB_WORD_TYPE_SZ_BITS);
+    NIOVA_ASSERT(x.nb_map[1] == NB_WORD_ANY);
+
+    niova_bitmap_range_unset(&x, NB_WORD_TYPE_SZ_BITS, NB_WORD_TYPE_SZ_BITS);
+    NIOVA_ASSERT(x.nb_map[1] == 0);
+
+    /* Every width that evenly divides the word size, at every aligned
+     * offset in every word, round-trips through set/is_set/popcount/unset
+     * cleanly - and touches only its own word (raw check, independent of
+     * NB_MAP_WORD_IDX(), catches a wrong-word bug that is_set()/popcount()
+     * alone could not since they share that same macro).
+     */
+    unsigned int widths[] = {1, 2, 4, 8, 16, 32, 64};
+
+    for (unsigned int word_idx = 0; word_idx < size; word_idx++)
+    {
+        unsigned int word_base = word_idx * NB_WORD_TYPE_SZ_BITS;
+
+        for (unsigned int w = 0; w < ARRAY_SIZE(widths); w++)
+        {
+            unsigned int width_i = widths[w];
+
+            for (unsigned int off = 0; off < NB_WORD_TYPE_SZ_BITS;
+                 off += width_i)
+            {
+                unsigned int idx = word_base + off;
+
+                niova_bitmap_range_set(&x, idx, width_i);
+
+                NIOVA_ASSERT(niova_bitmap_range_is_set(&x, idx, width_i));
+                NIOVA_ASSERT(niova_bitmap_range_popcount(&x, idx, width_i) ==
+                            width_i);
+
+                for (unsigned int ow = 0; ow < size; ow++)
+                    NIOVA_ASSERT(ow == word_idx || x.nb_map[ow] == 0);
+
+                niova_bitmap_range_unset(&x, idx, width_i);
+
+                NIOVA_ASSERT(!niova_bitmap_range_is_set(&x, idx, width_i));
+                NIOVA_ASSERT(!niova_bitmap_range_popcount(&x, idx, width_i));
+                NIOVA_ASSERT(x.nb_map[word_idx] == 0);
+            }
+        }
+    }
+
+    NIOVA_ASSERT(niova_bitmap_inuse(&x) == 0);
+}
+
 int
 main(void)
 {
@@ -489,6 +613,8 @@ main(void)
     niova_bitmap_init_max_idx();
 
     niova_bitmap_iterate_test();
+
+    niova_bitmap_range_test();
 
     return 0;
 }
