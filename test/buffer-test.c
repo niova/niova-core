@@ -365,48 +365,73 @@ buffer_initx_trigger_memalign_tests()
 }
 
 static void
-buffer_page_memalign_padding_test(void)
+buffer_page_memalign_size_test(void)
 {
     const size_t alignment = 4096;
-    const size_t nbufs = 8;
-    const size_t buf_size = 512;
-    const size_t prologue_size = 512;
-    const size_t item_stride = alignment * 2;
-    const size_t region_size = nbufs * item_stride;
     void *base = NULL;
 
-    int rc = posix_memalign(&base, alignment, region_size);
+    int rc = posix_memalign(&base, alignment, alignment * 2);
     NIOVA_ASSERT(rc == 0 && base);
 
     struct buffer_set bs = {0};
     struct buffer_set_args bsa = {
         .bsa_set = &bs,
         .bsa_opts = BUFSET_OPT_MEMALIGN_PAGE,
-        .bsa_nbufs = nbufs,
-        .bsa_buf_size = buf_size,
-        .bsa_prologue_size = prologue_size,
+        .bsa_nbufs = 1,
+        .bsa_buf_size = 512,
         .bsa_region = base,
-        .bsa_region_size = region_size,
+        .bsa_region_size = alignment * 2,
     };
 
     rc = buffer_set_initx(&bsa);
-    NIOVA_ASSERT(rc == 0);
-    NIOVA_ASSERT(bsa.bsa_used_off == region_size);
+    NIOVA_ASSERT(rc == -EFAULT);
 
-    struct buffer_item *items[nbufs];
-    for (size_t i = 0; i < nbufs; i++)
+    bsa.bsa_buf_size = alignment;
+    bsa.bsa_prologue_size = 512;
+    rc = buffer_set_initx(&bsa);
+    NIOVA_ASSERT(rc == -EFAULT);
+
+    bsa.bsa_prologue_size = alignment;
+    rc = buffer_set_initx(&bsa);
+    NIOVA_ASSERT(rc == 0);
+
+    NIOVA_ASSERT(bsa.bsa_used_off == alignment * 2);
+    NIOVA_ASSERT(buffer_set_destroy(&bs) == 0);
+    free(base);
+}
+
+static void
+buffer_mutually_exclusive_alignment_test(void)
+{
+    const enum buffer_set_opts invalid_opts[] = {
+        BUFSET_OPT_MEMALIGN_L2 | BUFSET_OPT_MEMALIGN_SECTOR,
+        BUFSET_OPT_MEMALIGN_L2 | BUFSET_OPT_MEMALIGN_PAGE,
+        BUFSET_OPT_MEMALIGN_SECTOR | BUFSET_OPT_MEMALIGN_PAGE,
+        BUFSET_OPT_MEMALIGN_L2 | BUFSET_OPT_MEMALIGN_SECTOR |
+            BUFSET_OPT_MEMALIGN_PAGE,
+    };
+    const size_t alignment = 4096;
+    void *base = NULL;
+
+    int rc = posix_memalign(&base, alignment, alignment);
+    NIOVA_ASSERT(rc == 0 && base);
+
+    for (size_t i = 0; i < ARRAY_SIZE(invalid_opts); i++)
     {
-        struct buffer_item *bi = items[i] = buffer_set_allocate_item(&bs);
-        NIOVA_ASSERT(bi);
-        NIOVA_ASSERT(bi->bi_iov.iov_len == buf_size);
-        NIOVA_ASSERT(IS_ALIGNED_PTR(bi->bi_iov.iov_base, alignment));
+        struct buffer_set bs = {0};
+        struct buffer_set_args bsa = {
+            .bsa_set = &bs,
+            .bsa_opts = invalid_opts[i],
+            .bsa_nbufs = 1,
+            .bsa_buf_size = alignment,
+            .bsa_region = base,
+            .bsa_region_size = alignment,
+        };
+
+        rc = buffer_set_initx(&bsa);
+        NIOVA_ASSERT(rc == -EINVAL);
     }
 
-    for (size_t i = 0; i < nbufs; i++)
-        buffer_set_release_item(items[i]);
-
-    rc = buffer_set_destroy(&bs);
-    NIOVA_ASSERT(rc == 0);
     free(base);
 }
 
@@ -424,7 +449,8 @@ main(void)
 
     buffer_user_cache_test();
     buffer_initx_trigger_memalign_tests();
-    buffer_page_memalign_padding_test();
+    buffer_page_memalign_size_test();
+    buffer_mutually_exclusive_alignment_test();
 
     return 0;
 }
