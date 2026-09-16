@@ -214,6 +214,113 @@ niova_bitmap_set(struct niova_bitmap *nb, unsigned int idx)
     return niova_bitmap_set_unset(nb, idx, true);
 }
 
+/* Bulk bit-range helpers: set/clear/test `width` contiguous bits starting at
+ * `idx` in one word access instead of a bit-by-bit loop. `idx` must be a
+ * multiple of `width`, and `width` must divide NB_WORD_TYPE_SZ_BITS (true
+ * for e32/e64/e128 fvblks, which are 8/16/32 4k-vblks wide) - that keeps the
+ * range inside a single word, no boundary-crossing to worry about.
+ *
+ * These are hot-path primitives (compaction/merge), so the one-word and
+ * bounds contract is enforced via NIOVA_ASSERT rather than a return code -
+ * every caller already guarantees it by construction (fat-vblk widths are
+ * naturally aligned), so a violation here is a caller bug, not a runtime
+ * condition to recover from. niova_bitmap_set()/unset() remain the
+ * return-code-checked single-bit API for callers that need one.
+ */
+static inline void
+niova_bitmap_range_validate_width(unsigned int idx, unsigned int width)
+{
+    NIOVA_ASSERT(width > 0 && width <= NB_WORD_TYPE_SZ_BITS);
+
+    // NIOVA_ASSERT stringifies its condition into a printf format string,
+    // so the modulo must be computed here rather than inline - a literal
+    // '%' in the asserted expression becomes a bogus conversion specifier.
+    unsigned int bit_off = idx % NB_WORD_TYPE_SZ_BITS;
+    NIOVA_ASSERT(bit_off + width <= NB_WORD_TYPE_SZ_BITS);
+}
+
+static inline void
+niova_bitmap_range_validate(const struct niova_bitmap *nb, unsigned int idx,
+                            unsigned int width)
+{
+    NIOVA_ASSERT(nb && nb->nb_map);
+    niova_bitmap_range_validate_width(idx, width);
+    NIOVA_ASSERT((size_t)idx + width <= nb->nb_max_idx);
+}
+
+/* Callers below have already validated (idx, width) via
+ * niova_bitmap_range_validate() before reaching this internal helper.
+ */
+static inline bitmap_word_t
+niova_bitmap_range_mask(unsigned int idx, unsigned int width)
+{
+    unsigned int bit_off = idx % NB_WORD_TYPE_SZ_BITS;
+
+    return width == NB_WORD_TYPE_SZ_BITS ?
+        NB_WORD_ANY : ((((bitmap_word_t)1) << width) - 1) << bit_off;
+}
+
+/* True only if every bit in the range is set */
+static inline bool
+niova_bitmap_range_is_set(const struct niova_bitmap *nb, unsigned int idx,
+                          unsigned int width)
+{
+    niova_bitmap_range_validate(nb, idx, width);
+
+    bitmap_word_t mask = niova_bitmap_range_mask(idx, width);
+
+    return (nb->nb_map[NB_MAP_WORD_IDX(idx)] & mask) == mask;
+}
+
+/* True if any bit in the range is set */
+static inline bool
+niova_bitmap_range_any_set(const struct niova_bitmap *nb, unsigned int idx,
+                           unsigned int width)
+{
+    niova_bitmap_range_validate(nb, idx, width);
+
+    bitmap_word_t mask = niova_bitmap_range_mask(idx, width);
+
+    return (nb->nb_map[NB_MAP_WORD_IDX(idx)] & mask) != 0;
+}
+
+static inline int
+niova_bitmap_range_set(struct niova_bitmap *nb, unsigned int idx,
+                       unsigned int width, bool ebusy_ok)
+{
+    niova_bitmap_range_validate(nb, idx, width);
+
+    if (!ebusy_ok && niova_bitmap_range_any_set(nb, idx, width))
+        return -EBUSY;
+
+    nb->nb_map[NB_MAP_WORD_IDX(idx)] |= niova_bitmap_range_mask(idx, width);
+    return 0;
+}
+
+static inline int
+niova_bitmap_range_unset(struct niova_bitmap *nb, unsigned int idx,
+                         unsigned int width)
+{
+    niova_bitmap_range_validate(nb, idx, width);
+
+    if (!niova_bitmap_range_is_set(nb, idx, width))
+        return -EALREADY;
+
+    nb->nb_map[NB_MAP_WORD_IDX(idx)] &= ~niova_bitmap_range_mask(idx, width);
+    return 0;
+}
+
+/* 0 == fully free, width == fully set, else == partially set */
+static inline unsigned int
+niova_bitmap_range_popcount(const struct niova_bitmap *nb, unsigned int idx,
+                            unsigned int width)
+{
+    niova_bitmap_range_validate(nb, idx, width);
+
+    return number_of_ones_in_val(
+        nb->nb_map[NB_MAP_WORD_IDX(idx)] & niova_bitmap_range_mask(idx, width));
+}
+
 static inline int
 niova_bitmap_copy(struct niova_bitmap *dest,
                   const struct niova_bitmap *src)
