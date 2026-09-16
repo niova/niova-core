@@ -477,17 +477,21 @@ niova_bitmap_range_test(void)
          idx += width)
     {
         NIOVA_ASSERT(!niova_bitmap_range_is_set(&x, idx, width));
+        NIOVA_ASSERT(!niova_bitmap_range_any_set(&x, idx, width));
         NIOVA_ASSERT(!niova_bitmap_range_popcount(&x, idx, width));
     }
 
     // Set one range, verify it and only it is affected
-    niova_bitmap_range_set(&x, 8, width);
+    niova_bitmap_range_set(&x, 8, width, true);
 
     NIOVA_ASSERT(niova_bitmap_range_is_set(&x, 8, width));
+    NIOVA_ASSERT(niova_bitmap_range_any_set(&x, 8, width));
     NIOVA_ASSERT(niova_bitmap_range_popcount(&x, 8, width) == width);
     NIOVA_ASSERT(!niova_bitmap_range_is_set(&x, 0, width));
+    NIOVA_ASSERT(!niova_bitmap_range_any_set(&x, 0, width));
     NIOVA_ASSERT(!niova_bitmap_range_popcount(&x, 0, width));
     NIOVA_ASSERT(!niova_bitmap_range_is_set(&x, 16, width));
+    NIOVA_ASSERT(!niova_bitmap_range_any_set(&x, 16, width));
     NIOVA_ASSERT(!niova_bitmap_range_popcount(&x, 16, width));
 
     // Adjacent single bits outside the range must be untouched
@@ -502,43 +506,82 @@ niova_bitmap_range_test(void)
     for (unsigned int w = 1; w < size; w++)
         NIOVA_ASSERT(x.nb_map[w] == 0);
 
-    /* Re-setting an already-set range is a no-op, not an error: real
-     * callers (mb2_compaction_claim_ece/ecre_bits() in niova-block)
-     * deliberately re-claim vblks that a newer compaction entry already
-     * owns, using popcount() beforehand to learn how much overlapped.
+    /* Re-setting an already-set range is a no-op, not an error, as long as
+     * ebusy_ok is passed: real callers (mb2_compaction_claim_ece/ecre_bits()
+     * in niova-block) deliberately re-claim vblks that a newer compaction
+     * entry already owns, using popcount() beforehand to learn how much
+     * overlapped.
      */
-    niova_bitmap_range_set(&x, 8, width);
+    niova_bitmap_range_set(&x, 8, width, true);
     NIOVA_ASSERT(niova_bitmap_range_is_set(&x, 8, width));
+    NIOVA_ASSERT(niova_bitmap_range_any_set(&x, 8, width));
     NIOVA_ASSERT(niova_bitmap_range_popcount(&x, 8, width) == width);
 
-    // Re-set with a narrower width fully inside the set range: also a no-op
-    niova_bitmap_range_set(&x, 8, 4);
+    // Without ebusy_ok, re-setting an already-set range is -EBUSY
+    NIOVA_ASSERT(niova_bitmap_range_set(&x, 8, width, false) == -EBUSY);
     NIOVA_ASSERT(niova_bitmap_range_is_set(&x, 8, width));
 
-    // Partially-set range: popcount is between 0 and width, is_set is false
-    niova_bitmap_range_unset(&x, 12, 4);
+    // Re-set with a narrower width fully inside the set range: also -EBUSY
+    NIOVA_ASSERT(niova_bitmap_range_set(&x, 8, 4, false) == -EBUSY);
+    NIOVA_ASSERT(niova_bitmap_range_is_set(&x, 8, width));
+
+    // Re-set with a narrower width fully inside the set range: no-op with
+    // ebusy_ok
+    niova_bitmap_range_set(&x, 8, 4, true);
+    NIOVA_ASSERT(niova_bitmap_range_is_set(&x, 8, width));
+
+    // Partially-set range: popcount is between 0 and width, is_set is
+    // false, any_set is true
+    NIOVA_ASSERT(!niova_bitmap_range_unset(&x, 12, 4));
     NIOVA_ASSERT(!niova_bitmap_range_is_set(&x, 8, width));
+    NIOVA_ASSERT(niova_bitmap_range_any_set(&x, 8, width));
     NIOVA_ASSERT(niova_bitmap_range_popcount(&x, 8, width) == 4);
 
-    // Unsetting an already-unset range is likewise a harmless no-op
-    niova_bitmap_range_unset(&x, 0, width);
+    // A partially-set range also trips the -EBUSY check, since any_set()
+    // (not is_set()) guards niova_bitmap_range_set()
+    NIOVA_ASSERT(niova_bitmap_range_set(&x, 8, width, false) == -EBUSY);
+
+    /* niova_bitmap_range_unset() requires the whole range to be set -
+     * unsetting a partially-set or already-unset range is -EALREADY, not a
+     * no-op, so a double-release of a range surfaces as an error instead
+     * of silently corrupting the map.
+     */
+    NIOVA_ASSERT(niova_bitmap_range_unset(&x, 8, width) == -EALREADY);
+    NIOVA_ASSERT(niova_bitmap_range_popcount(&x, 8, width) == 4);
+
+    // An already-unset range is likewise -EALREADY, and leaves the map
+    // untouched
+    NIOVA_ASSERT(niova_bitmap_range_unset(&x, 0, width) == -EALREADY);
+    NIOVA_ASSERT(!niova_bitmap_range_any_set(&x, 0, width));
     NIOVA_ASSERT(!niova_bitmap_range_popcount(&x, 0, width));
 
     // Unset the remainder, then confirm the whole range is clear
-    niova_bitmap_range_unset(&x, 8, 4);
+    NIOVA_ASSERT(!niova_bitmap_range_unset(&x, 8, 4));
+    NIOVA_ASSERT(!niova_bitmap_range_any_set(&x, 8, width));
     NIOVA_ASSERT(!niova_bitmap_range_popcount(&x, 8, width));
     NIOVA_ASSERT(niova_bitmap_inuse(&x) == 0);
 
+    // Now that the range is fully clear again, setting it without
+    // ebusy_ok succeeds
+    NIOVA_ASSERT(!niova_bitmap_range_set(&x, 8, width, false));
+    NIOVA_ASSERT(!niova_bitmap_range_unset(&x, 8, width));
+
     // Full-word width (NB_WORD_TYPE_SZ_BITS) exercises the NB_WORD_ANY mask
-    niova_bitmap_range_set(&x, NB_WORD_TYPE_SZ_BITS, NB_WORD_TYPE_SZ_BITS);
+    niova_bitmap_range_set(&x, NB_WORD_TYPE_SZ_BITS, NB_WORD_TYPE_SZ_BITS,
+                           true);
     NIOVA_ASSERT(niova_bitmap_range_is_set(&x, NB_WORD_TYPE_SZ_BITS,
                                            NB_WORD_TYPE_SZ_BITS));
+    NIOVA_ASSERT(niova_bitmap_range_any_set(&x, NB_WORD_TYPE_SZ_BITS,
+                                            NB_WORD_TYPE_SZ_BITS));
     NIOVA_ASSERT(niova_bitmap_range_popcount(&x, NB_WORD_TYPE_SZ_BITS,
                                              NB_WORD_TYPE_SZ_BITS) ==
                 NB_WORD_TYPE_SZ_BITS);
     NIOVA_ASSERT(x.nb_map[1] == NB_WORD_ANY);
 
-    niova_bitmap_range_unset(&x, NB_WORD_TYPE_SZ_BITS, NB_WORD_TYPE_SZ_BITS);
+    NIOVA_ASSERT(!niova_bitmap_range_unset(&x, NB_WORD_TYPE_SZ_BITS,
+                                           NB_WORD_TYPE_SZ_BITS));
+    NIOVA_ASSERT(!niova_bitmap_range_any_set(&x, NB_WORD_TYPE_SZ_BITS,
+                                             NB_WORD_TYPE_SZ_BITS));
     NIOVA_ASSERT(x.nb_map[1] == 0);
 
     /* Every width that evenly divides the word size, at every aligned
@@ -562,18 +605,20 @@ niova_bitmap_range_test(void)
             {
                 unsigned int idx = word_base + off;
 
-                niova_bitmap_range_set(&x, idx, width_i);
+                niova_bitmap_range_set(&x, idx, width_i, true);
 
                 NIOVA_ASSERT(niova_bitmap_range_is_set(&x, idx, width_i));
+                NIOVA_ASSERT(niova_bitmap_range_any_set(&x, idx, width_i));
                 NIOVA_ASSERT(niova_bitmap_range_popcount(&x, idx, width_i) ==
                             width_i);
 
                 for (unsigned int ow = 0; ow < size; ow++)
                     NIOVA_ASSERT(ow == word_idx || x.nb_map[ow] == 0);
 
-                niova_bitmap_range_unset(&x, idx, width_i);
+                NIOVA_ASSERT(!niova_bitmap_range_unset(&x, idx, width_i));
 
                 NIOVA_ASSERT(!niova_bitmap_range_is_set(&x, idx, width_i));
+                NIOVA_ASSERT(!niova_bitmap_range_any_set(&x, idx, width_i));
                 NIOVA_ASSERT(!niova_bitmap_range_popcount(&x, idx, width_i));
                 NIOVA_ASSERT(x.nb_map[word_idx] == 0);
             }

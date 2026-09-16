@@ -260,24 +260,6 @@ niova_bitmap_range_mask(unsigned int idx, unsigned int width)
         NB_WORD_ANY : ((((bitmap_word_t)1) << width) - 1) << bit_off;
 }
 
-static inline void
-niova_bitmap_range_set(struct niova_bitmap *nb, unsigned int idx,
-                       unsigned int width)
-{
-    niova_bitmap_range_validate(nb, idx, width);
-
-    nb->nb_map[NB_MAP_WORD_IDX(idx)] |= niova_bitmap_range_mask(idx, width);
-}
-
-static inline void
-niova_bitmap_range_unset(struct niova_bitmap *nb, unsigned int idx,
-                         unsigned int width)
-{
-    niova_bitmap_range_validate(nb, idx, width);
-
-    nb->nb_map[NB_MAP_WORD_IDX(idx)] &= ~niova_bitmap_range_mask(idx, width);
-}
-
 /* True only if every bit in the range is set */
 static inline bool
 niova_bitmap_range_is_set(const struct niova_bitmap *nb, unsigned int idx,
@@ -288,6 +270,44 @@ niova_bitmap_range_is_set(const struct niova_bitmap *nb, unsigned int idx,
     bitmap_word_t mask = niova_bitmap_range_mask(idx, width);
 
     return (nb->nb_map[NB_MAP_WORD_IDX(idx)] & mask) == mask;
+}
+
+/* True if any bit in the range is set */
+static inline bool
+niova_bitmap_range_any_set(const struct niova_bitmap *nb, unsigned int idx,
+                           unsigned int width)
+{
+    niova_bitmap_range_validate(nb, idx, width);
+
+    bitmap_word_t mask = niova_bitmap_range_mask(idx, width);
+
+    return (nb->nb_map[NB_MAP_WORD_IDX(idx)] & mask) != 0;
+}
+
+static inline int
+niova_bitmap_range_set(struct niova_bitmap *nb, unsigned int idx,
+                       unsigned int width, bool ebusy_ok)
+{
+    niova_bitmap_range_validate(nb, idx, width);
+
+    if (!ebusy_ok && niova_bitmap_range_any_set(nb, idx, width))
+        return -EBUSY;
+
+    nb->nb_map[NB_MAP_WORD_IDX(idx)] |= niova_bitmap_range_mask(idx, width);
+    return 0;
+}
+
+static inline int
+niova_bitmap_range_unset(struct niova_bitmap *nb, unsigned int idx,
+                         unsigned int width)
+{
+    niova_bitmap_range_validate(nb, idx, width);
+
+    if (!niova_bitmap_range_is_set(nb, idx, width))
+        return -EALREADY;
+
+    nb->nb_map[NB_MAP_WORD_IDX(idx)] &= ~niova_bitmap_range_mask(idx, width);
+    return 0;
 }
 
 /* 0 == fully free, width == fully set, else == partially set */
