@@ -20,7 +20,6 @@
 #define BUFFSET_OPT_ALIGNMENT_FLAGS_MASK \
     (BUFSET_OPT_MEMALIGN_L2     |        \
      BUFSET_OPT_MEMALIGN_SECTOR |        \
-     BUFSET_OPT_MEMALIGN_PAGE   |        \
      BUFSET_OPT_MEMALIGN)                \
 
 enum buffer_set_opts
@@ -31,7 +30,6 @@ enum buffer_set_opts
     BUFSET_OPT_MEMALIGN_L2     = (1 << 3),
     BUFSET_OPT_MEMALIGN_SECTOR = (1 << 4),
     BUFSET_OPT_MMAP_REGION     = (1 << 5),
-    BUFSET_OPT_MEMALIGN_PAGE   = (1 << 6),
     BUFSET_OPT_MEMALIGN        = BUFSET_OPT_MEMALIGN_SECTOR,
 };
 
