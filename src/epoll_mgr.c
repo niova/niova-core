@@ -95,6 +95,7 @@ epoll_mgr_setup(struct epoll_mgr *epm)
     SLIST_INIT(&epm->epm_ctx_cb_list);
 
     epm->epm_ctx_cb_num = 0;
+    epm->epm_ctx_cb_running = NULL;
 
     epm->epm_ready = 1;
     niova_atomic_init(&epm->epm_epoll_wait_cnt, 0);
@@ -385,7 +386,15 @@ epoll_handle_del(struct epoll_mgr *epm, struct epoll_handle *eph)
         eph->eph_destroying = 1;
         CIRCLEQ_REMOVE(&epm->epm_active_list, eph, eph_lentry);
 
-        if (!epoll_handle_releases_in_current_thread(epm, eph))
+        /* A queued ctx cb runs before the delete; the running one may be
+         * deleting its own eph.  epm_ctx_cb_running is mgr-thread only:
+         * other threads defer below regardless of this compare.
+         */
+        const bool ctx_cb_pending =
+            eph->eph_ctx_cb && epm->epm_ctx_cb_running != eph;
+
+        if (!epoll_handle_releases_in_current_thread(epm, eph) ||
+            ctx_cb_pending)
         {
             CIRCLEQ_INSERT_HEAD(&epm->epm_destroy_list, eph, eph_lentry);
             // Mark that the 'eph' will be destroyed async
@@ -416,6 +425,7 @@ epoll_mgr_reap_destroy_list(struct epoll_mgr *epm)
     SIMPLE_FUNC_ENTRY(LL_TRACE);
 
     struct epoll_handle *destroy = NULL;
+    struct epoll_handle_list delay_list = CIRCLEQ_HEAD_INITIALIZER(delay_list);
 
     if (CIRCLEQ_EMPTY(&epm->epm_destroy_list))
         return;
@@ -429,9 +439,17 @@ epoll_mgr_reap_destroy_list(struct epoll_mgr *epm)
         if (destroy)
             CIRCLEQ_REMOVE(&epm->epm_destroy_list, destroy, eph_lentry);
 
+        /* Not deletable yet: a ctx cb for this eph is still queued.  Park
+         * it on delay_list, popping it back onto epm_destroy_list here would
+         * loop forever; it goes back after the loop.
+         */
+        const bool delay = destroy && destroy->eph_ctx_cb;
+        if (delay)
+            CIRCLEQ_INSERT_HEAD(&delay_list, destroy, eph_lentry);
+
         pthread_mutex_unlock(&epm->epm_mutex);
 
-        if (destroy)
+        if (destroy && !delay)
         {
             int rc = epoll_handle_del_complete(epm, destroy);
             if (rc)
@@ -440,6 +458,14 @@ epoll_mgr_reap_destroy_list(struct epoll_mgr *epm)
                         destroy, strerror(-rc));
         }
     } while (destroy);
+
+    if (CIRCLEQ_EMPTY(&delay_list))
+        return;
+
+    /* splice back, possibly different order does not matter */
+    pthread_mutex_lock(&epm->epm_mutex);
+    CIRCLEQ_SPLICE_TAIL(&delay_list, &epm->epm_destroy_list, eph_lentry);
+    pthread_mutex_unlock(&epm->epm_mutex);
 }
 
 int
@@ -513,7 +539,9 @@ epoll_mgr_ctx_cb_run(struct epoll_mgr *epm, struct epoll_handle *eph)
     epoll_mgr_ctx_op_cb_t cb = eph->eph_ctx_cb;
     void *arg = eph->eph_arg;
 
+    epm->epm_ctx_cb_running = eph;
     cb(arg);
+    epm->epm_ctx_cb_running = NULL;
 
     niova_mutex_lock(&epm->epm_mutex);
 

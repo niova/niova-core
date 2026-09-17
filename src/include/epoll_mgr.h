@@ -67,6 +67,8 @@ struct epoll_mgr
     struct epoll_handle_list       epm_destroy_list;
     struct epoll_ctx_callback_list epm_ctx_cb_list;
     int                            epm_ctx_cb_num;
+    // eph whose ctx cb is executing; mgr thread only, no lock
+    struct epoll_handle           *epm_ctx_cb_running;
 };
 
 struct niova_env_var;
