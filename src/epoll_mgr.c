@@ -502,7 +502,7 @@ out:
         eph->eph_ref_cb(eph->eph_arg, EPH_REF_PUT);
 
     SIMPLE_FUNC_EXIT(LL_TRACE);
-    return 0;
+    return rc;
 }
 
 static void
