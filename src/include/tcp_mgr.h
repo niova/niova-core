@@ -117,6 +117,9 @@ do {                                                                 \
 int
 tcp_mgr_worker_cnt_get(void);
 
+void
+tcp_mgr_destroy(struct tcp_mgr_instance *tmi);
+
 int
 tcp_mgr_setup(struct tcp_mgr_instance *tmi, void *data,
               epoll_mgr_ref_cb_t connection_ref_cb,
