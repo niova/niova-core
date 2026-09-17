@@ -659,6 +659,14 @@ epoll_mgr_context_test_user(void *arg)
     FATAL_IF(local_data.ectd_eph.eph_installed,
              "eph still installed after del");
 
+    // a queued ctx cb still holds a ref; local_data dies with this stack
+    for (int i = 0; i < 100 && niova_atomic_read(&local_data.ectd_refcnt) > 1;
+         i++)
+        usleep(10 * 1000);
+
+    FATAL_IF(niova_atomic_read(&local_data.ectd_refcnt) != 1,
+             "ctx cb still holds a ref on local_data");
+
     SIMPLE_FUNC_EXIT(LL_TRACE);
     return NULL;
 }
