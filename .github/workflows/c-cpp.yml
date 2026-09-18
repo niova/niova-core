@@ -42,9 +42,6 @@ jobs:
       run: make -j 4
     - name: make check (default)
       run: make check
-    - name: Dump logs if failure
-      run: find test -name \*.log -exec cat {} \;
-      if: ${{ failure() }}
 # asan build
     - name: distclean
       run: make distclean
@@ -56,9 +53,6 @@ jobs:
       run: make -j 4
     - name: make check (asan)
       run: make check
-    - name: Dump logs if failure
-      run: find test -name \*.log -exec cat {} \;
-      if: ${{ failure() }}
 # clang build
     - name: distclean
       run: make distclean
@@ -70,9 +64,6 @@ jobs:
       run: make -j 4
     - name: make check (clang)
       run: make check
-    - name: Dump logs if failure
-      run: find test -name \*.log -exec cat {} \;
-      if: ${{ failure() }}
 # other targets
     - name: uncrustify version (debug)
       run: uncrustify -v

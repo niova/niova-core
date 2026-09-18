@@ -135,3 +135,7 @@ go/pumiceDB/examples/niovaKV/proxy/proxy
 niova.pc
 
 test/mspace-test
+test/ec-test
+test/ec-micro-test
+test/rb-tree-arg-test
+test/ec-test.stamp

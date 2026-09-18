@@ -119,42 +119,34 @@ src_libniova_bt_la_SOURCES = src/niova_backtrace.c \
 noinst_PROGRAMS += test/ref-tree-test
 test_ref_tree_test_SOURCES = test/ref-tree-test.c
 test_ref_tree_test_LDADD = src/libniova.la
-TESTS += test/ref-tree-test
 
 noinst_PROGRAMS += test/ev-pipe-test
 test_ev_pipe_test_SOURCES =  test/ev-pipe-test.c
 test_ev_pipe_test_LDADD = src/libniova.la src/libniova_bt.la
-TESTS += test/ev-pipe-test
 
 noinst_PROGRAMS += test/work-dispatch-test
 test_work_dispatch_test_SOURCES = test/work-dispatch-test.c
 test_work_dispatch_test_LDADD = src/libniova.la
-TESTS += test/work-dispatch-test
 
 noinst_PROGRAMS += test/binary-hist-test
 test_binary_hist_test_SOURCES = test/binary-hist-test.c
 test_binary_hist_test_LDADD = src/libniova.la
-TESTS += test/binary-hist-test
 
 noinst_PROGRAMS += test/common-test
 test_common_test_SOURCES = test/common-test.c
 test_common_test_LDADD = src/libniova.la
-TESTS += test/common-test
 
 noinst_PROGRAMS += test/micro-test
 test_micro_test_SOURCES = test/micro-test.c
 test_micro_test_LDADD = src/libniova.la
-TESTS += test/micro-test
 
 noinst_PROGRAMS += test/alloc-test
 test_alloc_test_SOURCES = test/alloc-test.c
 test_alloc_test_LDADD = src/libniova.la
-TESTS += test/alloc-test
 
 noinst_PROGRAMS += test/buffer-test
 test_buffer_test_SOURCES = test/buffer-test.c
 test_buffer_test_LDADD = src/libniova.la
-TESTS += test/buffer-test
 
 noinst_PROGRAMS += test/registry-test
 # Use CORE_SOURCES so that this binary's constructor runs inside of niova
@@ -165,88 +157,98 @@ test_registry_test_SOURCES = $(src_libniova_bt_la_SOURCES) $(CORE_SOURCES) \
 test_registry_test_CFLAGS = $(AM_CFLAGS)
 test_registry_test_CPPFLAGS = $(AM_CPPFLAGS)
 test_registry_test_ASFLAGS = $(AM_ASFLAGS)
-TESTS += test/registry-test
 
 noinst_PROGRAMS += test/config-token-test
 test_config_token_test_SOURCES = test/config-token-test.c
 test_config_token_test_LDADD = src/libniova.la src/libniova_bt.la
-TESTS += test/config-token-test
 
 noinst_PROGRAMS += test/tcp-test
 test_tcp_test_SOURCES =  test/tcp-test.c
 test_tcp_test_LDADD = src/libniova.la src/libniova_bt.la
-TESTS += test/tcp-test
 
 noinst_PROGRAMS += test/udp-test
 test_udp_test_SOURCES =  test/udp-test.c
 test_udp_test_LDADD = src/libniova.la src/libniova_bt.la
-TESTS += test/udp-test
 
 noinst_PROGRAMS += test/random-test
 test_random_test_SOURCES = test/random-test.c
 test_random_test_LDADD = src/libniova.la
-TESTS += test/random-test
 
 noinst_PROGRAMS += test/queue-test
 test_queue_test_SOURCES = test/queue-test.c
 test_queue_test_LDADD = src/libniova.la
-TESTS += test/queue-test
 
 noinst_PROGRAMS += test/util-test
 test_util_test_SOURCES = test/util-test.c
 test_util_test_LDADD = src/libniova.la
-TESTS += test/util-test
 
 noinst_PROGRAMS += test/regex-test
 test_regex_test_SOURCES = test/regex-tests.c
 test_regex_test_LDADD = src/libniova.la
-TESTS += test/regex-test
 
 noinst_PROGRAMS += test/epoll-mgr-test
 test_epoll_mgr_test_SOURCES =  \
 	test/epoll-mgr-test.c
 test_epoll_mgr_test_LDADD = src/libniova.la src/libniova_bt.la
-TESTS += test/epoll-mgr-test
 
 
 noinst_PROGRAMS += test/bitmap-test
 test_bitmap_test_SOURCES = test/bitmap-test.c
 test_bitmap_test_LDADD = src/libniova.la
 test_bitmap_test_CFLAGS = $(AM_CFLAGS)
-TESTS += test/bitmap-test
 
 noinst_PROGRAMS += test/io-iov-test
 test_io_iov_test_SOURCES = test/io-iov-test.c
 test_io_iov_test_LDADD = src/libniova.la
 test_io_iov_test_CFLAGS = $(AM_CFLAGS)
-TESTS += test/io-iov-test
 
 noinst_PROGRAMS += test/mspace-test
 test_mspace_test_SOURCES = test/mspace-test.c
 test_mspace_test_LDADD = src/libniova.la
 test_mspace_test_CFLAGS = $(AM_CFLAGS)
-TESTS += test/mspace-test
 
 noinst_PROGRAMS += test/rb-tree-arg-test
 test_rb_tree_arg_test_SOURCES = test/rb-tree-arg-test.c
 test_rb_tree_arg_test_LDADD = src/libniova.la
 test_rb_tree_arg_test_CFLAGS = $(AM_CFLAGS)
-TESTS += test/rb-tree-arg-test
 
 noinst_PROGRAMS += test/ec-test
 test_ec_test_SOURCES = test/ec-test.c test/ec-reference-data.h
 test_ec_test_LDADD = src/libniova.la
 test_ec_test_CFLAGS = $(AM_CFLAGS)
-TESTS += test/ec-test
 
 noinst_PROGRAMS += test/ec-micro-test
 test_ec_micro_test_SOURCES = test/ec-micro-test.c
 test_ec_micro_test_LDADD = src/libniova.la
 test_ec_micro_test_CFLAGS = $(AM_CFLAGS)
-TESTS += test/ec-micro-test
+
+# Run the system tests.  Honour the -jN from `make -jN check` when make
+# exposes a concrete job count, else fall back to the CPU count (make -j with no
+# number, or a serial build, expose no count).  Depend on `all` so the binaries
+# the runner drives are built first.  Wired into `make check` as a prerequisite
+# below.  --print-err: CI has no access to the run directory, so a failing
+# test's logs go to stderr.
+#
+# SYSTEM_TEST_COMPRESS_LOGS=1 gzips each kept test's logs at teardown, for a
+# host that is short on scratch space; see --compress-logs.
+check-system-tests: all
+	@jobs=`echo " $(MAKEFLAGS)" | sed -n 's/.*-j *\([0-9][0-9]*\).*/\1/p'`; \
+	test -n "$$jobs" || jobs=`nproc 2>/dev/null || echo 1`; \
+	compress=; \
+	test -z "$(SYSTEM_TEST_COMPRESS_LOGS)" || compress=--compress-logs; \
+	echo "system-tests: running run-system-tests.py with -j$$jobs $$compress"; \
+	$(top_srcdir)/test/system-tests/run-system-tests.py \
+		--build-dir $(abs_top_builddir) -j "$$jobs" --print-err $$compress
+
+check: check-system-tests
 
 # Run ec-test as part of `make`, not just `make check`.
+#
+# Unit tests are markers under test/system-tests/unit/, run by the system-test
+# runner.  automake's TESTS is a second way in that only `make check` executes,
+# so anything added there is invisible to CI -- refuse to build with it set.
 all-local: test/ec-test.stamp
+	@test -z "$(TESTS)" || { echo "TESTS is set ($(TESTS)); add a marker under test/system-tests/unit/ instead"; exit 1; }
 
 test/ec-test.stamp: test/ec-test$(EXEEXT)
 	@./test/ec-test$(EXEEXT)
