@@ -33,6 +33,7 @@ struct epm_test_handle
     const int64_t       eth_id;
     struct epoll_handle eth_eph;
     struct ev_pipe      eth_evp;
+    pthread_t           eth_ref_put_thread;
 };
 
 static int
@@ -74,7 +75,10 @@ epoll_mgr_thread_test_ref_cb(void *arg, enum epoll_handle_ref_op op)
         REF_TREE_REF_GET_ELEM(&epollMgrTestRT, eth, eth_rtentry);
 
     else if (op == EPH_REF_PUT) // may enter the destructor
+    {
+        eth->eth_ref_put_thread = pthread_self();
         RT_PUT(epoll_mgr_test_ref_tree, &epollMgrTestRT, eth);
+    }
 
     else
         FATAL_IF(1, "op=%d is neither EPH_REF_GET nor EPH_REF_PUT", op);
@@ -217,15 +221,20 @@ epoll_mgr_test_thread_user(void *arg)
         rc = epoll_handle_del(epm, &eth->eth_eph);
         FATAL_IF(rc, "epoll_handle_del() expected 0 got %d", rc);
 
-        FATAL_IF(!(eth->eth_eph.eph_destroying &&
-                   eth->eth_eph.eph_async_destroy),
-                 "eph_destroying or eph_async_destroy not set");
-
-        while (eth->eth_eph.eph_installed)
+        /* eph_installed is cleared before the mgr drops its ref; wait for
+         * the ref so that our RT_PUT below runs the destructor
+         */
+        while (niova_atomic_read(&eth->eth_rtentry.rte_ref_cnt) > 1)
         {
             SIMPLE_LOG_MSG(LL_DEBUG, "waiting for async removal");
             usleep(1000);
         }
+
+        FATAL_IF(eth->eth_eph.eph_installed, "eph_installed is still set");
+
+        FATAL_IF(eth->eth_ref_put_thread != epm->epm_thread_id,
+                 "EPH_REF_PUT ran in thread %lu, not the epm thread %lu",
+                 eth->eth_ref_put_thread, epm->epm_thread_id);
 
         thread_ctl_halt(&epmThreads[EPM_MGR]);
         thread_issue_sig_alarm_to_thread(epm->epm_thread_id);
