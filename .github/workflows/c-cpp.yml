@@ -16,9 +16,9 @@ jobs:
     - name: apt update
       run: sudo apt update
     - name: dpkg / rpm prep (debug)
-      run: echo "sudo -E apt-get install -y uuid-dev uuid libuuid1 libgcrypt20 openssl libssl-dev `apt-cache search librocksdb | awk '{print $1}'` uncrustify libasan5 libtsan0 nasm"
+      run: echo "sudo apt-get install -y uuid-dev uuid libuuid1 libgcrypt20 openssl libssl-dev `apt-cache search librocksdb | awk '{print $1}'` uncrustify nasm"
     - name: dpkg / rpm prep
-      run: sudo -E apt-get install -y uuid-dev uuid libuuid1 libgcrypt20 openssl libssl-dev `apt-cache search librocksdb | awk '{print $1}'` uncrustify libasan5 libtsan0 nasm
+      run: sudo apt-get install -y uuid-dev uuid libuuid1 libgcrypt20 openssl libssl-dev `apt-cache search librocksdb | awk '{print $1}'` uncrustify nasm
 # capture gcc and clang versions
     - name: gcc version
       run: gcc --version
