@@ -222,6 +222,10 @@ test_ec_micro_test_SOURCES = test/ec-micro-test.c
 test_ec_micro_test_LDADD = src/libniova.la
 test_ec_micro_test_CFLAGS = $(AM_CFLAGS)
 
+noinst_PROGRAMS += test/thread-test
+test_thread_test_SOURCES = test/thread-test.c
+test_thread_test_LDADD = src/libniova.la
+
 # Run the system tests.  Honour the -jN from `make -jN check` when make
 # exposes a concrete job count, else fall back to the CPU count (make -j with no
 # number, or a serial build, expose no count).  Depend on `all` so the binaries
