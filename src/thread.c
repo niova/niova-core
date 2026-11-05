@@ -198,7 +198,22 @@ thread_create_internal(void *(*start_routine)(void *), struct thread_ctl *tc,
 
     tc->tc_arg = arg;
 
+    /* The new thread inherits this mask. A termination signal sent to the
+     * process then goes to an application thread that waits for it.
+     */
+    sigset_t termination_signals;
+    sigemptyset(&termination_signals);
+    sigaddset(&termination_signals, SIGINT);
+    sigaddset(&termination_signals, SIGTERM);
+    sigaddset(&termination_signals, SIGHUP);
+    sigaddset(&termination_signals, SIGQUIT);
+
+    sigset_t creator_mask;
+    pthread_sigmask(SIG_BLOCK, &termination_signals, &creator_mask);
+
     int rc = pthread_create(&tc->tc_thread_id, attr, start_routine, tc);
+
+    pthread_sigmask(SIG_SETMASK, &creator_mask, NULL);
 
     if (!rc && name && strnlen(name, MAX_THREAD_NAME) < MAX_THREAD_NAME)
     {
