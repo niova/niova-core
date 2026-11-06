@@ -219,6 +219,7 @@ struct {                                 \
 #define RT_FOREACH_LOCKED(x, name, head) \
     RB_FOREACH(x, _RT_##name, &(head)->rt_head)
 
+
 #define RT_FOREACH_SAFE_LOCKED(x, name, head, y) \
     RB_FOREACH_SAFE(x, _RT_##name, &(head)->rt_head, y)
 
@@ -245,5 +246,15 @@ struct {                                 \
 
 #define RT_EMPTY(head) RB_EMPTY(&(head)->rt_head)
 #define RT_INIT(head) RB_INIT(&(head)->rt_head)
+
+// To traverse a tree with macro such as RT_FOREACH, RT_FOREACH_SAFE from a
+// source code file different from the one with the definition of the tree (by
+// REF_TREE_GENERATE), you have to declare the methods necessary for the
+// compiler to find the correct names.
+#define DECLARE_FOR_RT_TRAVERSE(name, type)                                   \
+struct type *                                                                  \
+_RT_##name##_RB_MINMAX(struct _RT_##name *head, int val);                      \
+struct type *                                                                  \
+_RT_##name##_RB_NEXT(struct type *elm);                                        \
 
 #endif //REF_TREE_H
