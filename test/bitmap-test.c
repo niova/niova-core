@@ -628,6 +628,18 @@ niova_bitmap_range_test(void)
     NIOVA_ASSERT(niova_bitmap_inuse(&x) == 0);
 }
 
+static void
+niova_bitmap_word32_longest_unset_run_test(void)
+{
+    NIOVA_ASSERT(niova_bitmap_word32_longest_unset_run(0) == 32);
+    NIOVA_ASSERT(niova_bitmap_word32_longest_unset_run(UINT32_MAX) == 0);
+    NIOVA_ASSERT(niova_bitmap_word32_longest_unset_run(0x00000001) == 31);
+    NIOVA_ASSERT(niova_bitmap_word32_longest_unset_run(0x80000000) == 31);
+    NIOVA_ASSERT(niova_bitmap_word32_longest_unset_run(0xaaaaaaaa) == 1);
+    NIOVA_ASSERT(niova_bitmap_word32_longest_unset_run(0x0ff00ff0) == 8);
+    NIOVA_ASSERT(niova_bitmap_word32_longest_unset_run(0xfffff30f) == 4);
+}
+
 int
 main(void)
 {
@@ -660,6 +672,8 @@ main(void)
     niova_bitmap_iterate_test();
 
     niova_bitmap_range_test();
+
+    niova_bitmap_word32_longest_unset_run_test();
 
     return 0;
 }

@@ -488,6 +488,22 @@ niova_bitmap_get_32bit_word(const struct niova_bitmap *nb, unsigned int idx32,
     return 0;
 }
 
+// Returns the length of the longest run of unset bits of word.
+static inline uint32_t
+niova_bitmap_word32_longest_unset_run(bitmap_word32_t word)
+{
+    uint32_t longest = 0;
+    uint32_t run_len = 0;
+
+    for (uint32_t i = 0; i < TYPE_SZ_BITS(bitmap_word32_t); i++)
+    {
+        run_len = (word & ((bitmap_word32_t)1 << i)) ? 0 : run_len + 1;
+        longest = MAX(longest, run_len);
+    }
+
+    return longest;
+}
+
 static inline void
 niova_bitmap_compile_time_asserts(void)
 {
