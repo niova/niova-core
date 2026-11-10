@@ -109,6 +109,7 @@ test/raft-reference-server
 test/ref-tree-test
 test/registry-test
 test/tcp-test
+test/thread-test
 test/udp-test
 test/work-dispatch-test
 test/.libs/
