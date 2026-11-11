@@ -492,16 +492,16 @@ niova_bitmap_get_32bit_word(const struct niova_bitmap *nb, unsigned int idx32,
 static inline uint32_t
 niova_bitmap_word32_longest_unset_run(bitmap_word32_t word)
 {
-    uint32_t longest = 0;
-    uint32_t run_len = 0;
+    uint32_t invers = ~word;
+    uint32_t n = 0;
 
-    for (uint32_t i = 0; i < TYPE_SZ_BITS(bitmap_word32_t); i++)
+    while (invers)
     {
-        run_len = (word & ((bitmap_word32_t)1 << i)) ? 0 : run_len + 1;
-        longest = MAX(longest, run_len);
+        invers &= invers << 1;
+        n++;
     }
 
-    return longest;
+    return n;
 }
 
 static inline void
