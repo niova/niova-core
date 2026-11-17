@@ -160,15 +160,15 @@ do {                                                                         \
         niova_unstable_clock(&ts);                                           \
         if (thrCoName)                                                       \
         {                                                                    \
-            fprintf(stderr, "<%ld.%09lu:%s:%s,%s.%x.%x:%s@%d> " message "\n", \
+            fprintf(stderr, "<%ld.%09ld:%s:%s,%s.%x.%x:%s@%d> " message "\n", \
                     ts.tv_sec, ts.tv_nsec, ll_to_string(usr_level),          \
-                    thread_name_get(), thrCoName, (int)threadCoID,           \
-                    threadCoYieldCnt, __func__,                              \
+                    thread_name_get(), thrCoName, (unsigned int)threadCoID,  \
+                    (unsigned int)threadCoYieldCnt, __func__,                \
                     __LINE__, ##__VA_ARGS__);                                \
         }                                                                    \
         else                                                                 \
         {                                                                    \
-            fprintf(stderr, "<%ld.%09lu:%s:%s:%s@%d> " message "\n",         \
+            fprintf(stderr, "<%ld.%09ld:%s:%s:%s@%d> " message "\n",         \
                     ts.tv_sec, ts.tv_nsec, ll_to_string(usr_level),          \
                     thread_name_get(), __func__, __LINE__, ##__VA_ARGS__);   \
         }                                                                    \
