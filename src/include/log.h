@@ -172,11 +172,13 @@ do {                                                                         \
                     ts.tv_sec, ts.tv_nsec, ll_to_string(usr_level),          \
                     thread_name_get(), __func__, __LINE__, ##__VA_ARGS__);   \
         }                                                                    \
-        if ((usr_level) == LL_FATAL)                                         \
-        {                                                                    \
-            LOG_ABORT;                                                       \
-            __builtin_unreachable();                                         \
-        }                                                                    \
+    }                                                                        \
+                                                                             \
+    /* outside of usr_level <= sys_level, so analyzers see it is terminal */ \
+    if ((usr_level) == LL_FATAL)                                             \
+    {                                                                        \
+        LOG_ABORT;                                                           \
+        __builtin_unreachable();                                             \
     }                                                                        \
 } while (0)
 
