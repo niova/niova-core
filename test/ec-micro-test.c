@@ -81,8 +81,8 @@ free_shards(uint8_t **b, unsigned int n)
  * nclient_ec_fold_shard_into_parity() does when driven by nbt's 4 KiB iovecs.
  */
 static void
-fold_shard(const struct niova_ec_encode_cache *cache, unsigned int k,
-           unsigned int src_idx, size_t shard, const uint8_t *src,
+fold_shard(const struct niova_ec_encode_cache *cache, unsigned int src_idx,
+           size_t shard, const uint8_t *src,
            uint8_t **parity, unsigned int p)
 {
     uint8_t *par_at[NIOVA_EC_M_MAX];
@@ -92,7 +92,7 @@ fold_shard(const struct niova_ec_encode_cache *cache, unsigned int k,
         const size_t seg = MIN((size_t)SEG_BYTES, shard - off);
         for (unsigned int j = 0; j < p; j++)
             par_at[j] = parity[j] + off;
-        niova_ec_encode_update(cache, k, src_idx, seg, src + off, par_at);
+        niova_ec_encode_update(cache, src_idx, seg, src + off, par_at);
     }
 }
 
@@ -103,8 +103,8 @@ run(const struct ec_geom *g, size_t shard, size_t bench_bytes)
     const unsigned int p = g->p;
 
     struct niova_ec_encode_cache cache = {0};
-    int rc = niova_ec_init_encode_cache(&cache, k, k, p);
-    FATAL_IF(rc, "init_encode_cache(%u,%u,%u) -> %d", k, k, p, rc);
+    int rc = niova_ec_init_encode_cache(&cache, k, p);
+    FATAL_IF(rc, "init_encode_cache(%u,%u) -> %d", k, p, rc);
 
     uint8_t **data   = alloc_shards(k, shard);
     uint8_t **parity = alloc_shards(p, shard);
@@ -113,12 +113,12 @@ run(const struct ec_geom *g, size_t shard, size_t bench_bytes)
 
     for (unsigned int w = 0; w < 8; w++)       /* warm tables + fault pages */
         for (unsigned int d = 0; d < k; d++)
-            fold_shard(&cache, k, d, shard, data[d], parity, p);
+            fold_shard(&cache, d, shard, data[d], parity, p);
 
     double t0 = cpu_sec();
     for (size_t it = 0; it < niter; it++)
         for (unsigned int d = 0; d < k; d++)
-            fold_shard(&cache, k, d, shard, data[d], parity, p);
+            fold_shard(&cache, d, shard, data[d], parity, p);
     double cpu = cpu_sec() - t0;
 
     double user_bytes = (double)k * shard * niter;
