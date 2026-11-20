@@ -193,37 +193,77 @@ niova_ec_encode_update(const struct niova_ec_encode_cache *cache,
     return 0;
 }
 
-/* Builds the decode matrix from the encode matrix + erasure list, using the
- * pattern from isa-l's ec_simple_example.c. Plain-English summary:
- *  1) drop the rows of encode_matrix that correspond to erased fragments,
- *  2) invert the resulting kxk submatrix (Cauchy guarantees this works),
- *  3) the inverse's rows are the recipe to rebuild each original data shard;
- *     for an erased parity shard, multiply its original encode row by the
- *     inverse to re-express it in terms of the surviving shards.
+/* "Erased" means missing: the fragment's index is known, but its data is
+ * unavailable (failed disk, failed read, unreachable peer).
  *
- * Also fills decode_index[] with the surviving frag indices in matrix order.
+ * Check erased_idx[] and copy it into frag_err_list[].
+ * Sets frag_erased_map[frag] = 1 for each erased fragment; the caller must pass
+ * it zeroed. A fragment already marked means a duplicate.
+ */
+static int
+niova_ec_validate_erased(const unsigned int *erased_idx, unsigned int nerrs,
+                         unsigned int p, unsigned int m,
+                         uint8_t *frag_err_list,
+                         uint8_t *frag_erased_map)
+{
+    if (!erased_idx || nerrs == 0 || nerrs > p)
+        return -EINVAL;
+
+    for (unsigned int i = 0; i < nerrs; i++)
+    {
+        if (erased_idx[i] >= m || frag_erased_map[erased_idx[i]])
+            return -EINVAL;
+        frag_erased_map[erased_idx[i]] = 1;
+        frag_err_list[i] = (uint8_t)erased_idx[i];
+    }
+
+    return 0;
+}
+
+/* Check survivor_idx[] holds exactly k unique, non-erased indices and copy it
+ * into decode_index[]. The order is kept: it sets the decode matrix row order.
+ */
+static int
+niova_ec_validate_survivors(const unsigned int *survivor_idx,
+                            unsigned int nsurvivors, unsigned int k,
+                            unsigned int m, const uint8_t *frag_erased_map,
+                            uint8_t *decode_index)
+{
+    if (!survivor_idx || nsurvivors != k)
+        return -EINVAL;
+
+    uint8_t seen[NIOVA_EC_M_MAX] = {0};
+    for (unsigned int i = 0; i < nsurvivors; i++)
+    {
+        if (survivor_idx[i] >= m || seen[survivor_idx[i]] ||
+            frag_erased_map[survivor_idx[i]])
+            return -EINVAL;
+
+        seen[survivor_idx[i]] = 1;
+        decode_index[i] = (uint8_t)survivor_idx[i];
+    }
+
+    return 0;
+}
+
+/* Following ISA-L's ec_simple_example.c, invert the selected kxk encode
+ * submatrix; Cauchy construction guarantees invertibility.
+ * Inverse rows rebuild data fragments. To rebuild parity, multiply its
+ * original encode row by the inverse.
  */
 static int
 niova_ec_gen_decode_matrix(const uint8_t *encode_matrix, uint8_t *decode_matrix,
                            uint8_t *invert_matrix, uint8_t *temp_matrix,
                            uint8_t *decode_index, const uint8_t *frag_err_list,
-                           unsigned int nerrs, unsigned int k, unsigned int m)
+                           unsigned int nerrs, unsigned int k)
 {
-    uint8_t frag_in_err[NIOVA_EC_M_MAX] = {0};
     uint8_t *b = temp_matrix;
 
-    for (unsigned int i = 0; i < nerrs; i++)
-        frag_in_err[frag_err_list[i]] = 1;
-
-    for (unsigned int i = 0, r = 0; i < k; i++, r++)
+    // Row i of b is the encode row of survivor decode_index[i].
+    for (unsigned int i = 0; i < k; i++)
     {
-        while (r < m && frag_in_err[r])
-            r++;
-        if (r >= m)
-            return -EINVAL;
         for (unsigned int j = 0; j < k; j++)
-            b[k * i + j] = encode_matrix[k * r + j];
-        decode_index[i] = (uint8_t)r;
+            b[k * i + j] = encode_matrix[k * decode_index[i] + j];
     }
 
     if (gf_invert_matrix(b, invert_matrix, (int)k) < 0)
@@ -253,25 +293,31 @@ niova_ec_gen_decode_matrix(const uint8_t *encode_matrix, uint8_t *decode_matrix,
 }
 
 int
-niova_ec_decode_prepare(struct niova_ec_decode *d, unsigned int k,
-                        unsigned int p, const unsigned int *erased_idx,
-                        unsigned int nerrs)
+niova_ec_decode_prepare_selected(struct niova_ec_decode *d, unsigned int k,
+                                 unsigned int p,
+                                 const unsigned int *erased_idx,
+                                 unsigned int nerrs,
+                                 const unsigned int *survivor_idx,
+                                 unsigned int nsurvivors)
 {
-    if (!d || !erased_idx || k == 0 || p == 0 ||
-        (k + p) > NIOVA_EC_M_MAX || nerrs == 0 || nerrs > p)
+    if (!d || k == 0 || p == 0 || (k + p) > NIOVA_EC_M_MAX)
         return -EINVAL;
 
     const unsigned int m = k + p;
 
-    uint8_t seen[NIOVA_EC_M_MAX] = {0};
+    uint8_t frag_erased_map[NIOVA_EC_M_MAX] = {0};
     uint8_t frag_err_list[NIOVA_EC_M_MAX];
-    for (unsigned int i = 0; i < nerrs; i++)
-    {
-        if (erased_idx[i] >= m || seen[erased_idx[i]])
-            return -EINVAL;
-        seen[erased_idx[i]] = 1;
-        frag_err_list[i] = (uint8_t)erased_idx[i];
-    }
+    uint8_t decode_index[NIOVA_EC_M_MAX];
+
+    int rc = niova_ec_validate_erased(erased_idx, nerrs, p, m,
+                                      frag_err_list, frag_erased_map);
+    if (rc)
+        return rc;
+
+    rc = niova_ec_validate_survivors(survivor_idx, nsurvivors, k, m,
+                                     frag_erased_map, decode_index);
+    if (rc)
+        return rc;
 
     uint8_t encode_matrix[NIOVA_EC_M_MAX * NIOVA_EC_M_MAX];
     uint8_t decode_matrix[NIOVA_EC_M_MAX * NIOVA_EC_M_MAX];
@@ -284,10 +330,9 @@ niova_ec_decode_prepare(struct niova_ec_decode *d, unsigned int k,
     if (!g_tbls)
         return -ENOMEM;
 
-    int rc = niova_ec_gen_decode_matrix(encode_matrix, decode_matrix,
-                                        invert_matrix, temp_matrix,
-                                        d->decode_index, frag_err_list,
-                                        nerrs, k, m);
+    rc = niova_ec_gen_decode_matrix(encode_matrix, decode_matrix,
+                                    invert_matrix, temp_matrix, decode_index,
+                                    frag_err_list, nerrs, k);
     if (rc)
     {
         niova_free(g_tbls);
@@ -296,6 +341,9 @@ niova_ec_decode_prepare(struct niova_ec_decode *d, unsigned int k,
 
     ec_init_tables((int)k, (int)nerrs, decode_matrix, g_tbls);
 
+    // slot_of_frag[] maps a survivor's frag index to its decode slot.
+    // 0xff marks non-survivors, so niova_ec_decode_update() rejects them.
+    memcpy(d->decode_index, decode_index, k);
     memset(d->slot_of_frag, 0xff, sizeof(d->slot_of_frag));
     for (unsigned int i = 0; i < k; i++)
         d->slot_of_frag[d->decode_index[i]] = (uint8_t)i;
@@ -307,6 +355,37 @@ niova_ec_decode_prepare(struct niova_ec_decode *d, unsigned int k,
     d->nerrs   = nerrs;
     d->g_tbls  = g_tbls;
     return 0;
+}
+
+int
+niova_ec_decode_prepare(struct niova_ec_decode *d, unsigned int k,
+                        unsigned int p, const unsigned int *erased_idx,
+                        unsigned int nerrs)
+{
+    // Same bound as k + p <= NIOVA_EC_M_MAX, written so k + p cannot wrap.
+    if (!d || k == 0 || p == 0 || k > NIOVA_EC_M_MAX ||
+        p > NIOVA_EC_M_MAX - k)
+        return -EINVAL;
+
+    // Validate now because the survivor scan below reads frag_erased_map[].
+    // niova_ec_decode_prepare_selected() validates again.
+    uint8_t frag_erased_map[NIOVA_EC_M_MAX] = {0};
+    uint8_t frag_err_list[NIOVA_EC_M_MAX];
+    int rc = niova_ec_validate_erased(erased_idx, nerrs, p, k + p,
+                                      frag_err_list, frag_erased_map);
+    if (rc)
+        return rc;
+
+    // nerrs <= p, so at least k fragments survive and frag stays below m.
+    unsigned int survivors[NIOVA_EC_M_MAX];
+    for (unsigned int frag = 0, n = 0; n < k; frag++)
+    {
+        if (!frag_erased_map[frag])
+            survivors[n++] = frag;
+    }
+
+    return niova_ec_decode_prepare_selected(d, k, p, erased_idx, nerrs,
+                                            survivors, k);
 }
 
 int
