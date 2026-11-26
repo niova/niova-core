@@ -184,6 +184,10 @@ lctli_inotify_thread_poll_parse_buffer(struct ctl_interface *lctli,
     {
         event = (const struct inotify_event *)ptr;
 
+        // An event for the watch itself, as IN_IGNORED, has no name.
+        if (!event->len)
+            continue;
+
         LOG_MSG(LL_DEBUG, "event@%p mask=%x name=%s %s ",
                 event, event->mask, event->name,
                 (event->mask & IN_ISDIR) ? "[dir]" : "[file]");
